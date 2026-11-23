@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- verified the docker sandbox end to end (the CLI refuses
+  `--dangerously-skip-permissions` as root)
+- docker: run with the caller's uid/gid and `HOME=/tmp`; the image ships a
+  non-root user
+- Dockerfile: `DEBIAN_MIRROR` / `NPM_REGISTRY` build args for slow networks
+- CI: docker job builds the image and runs a sandbox smoke test
+
 ## 0.2.0
 
 - PyPI distribution name is `agents-bus` (the CLI command remains `agent-bus`)

@@ -143,13 +143,19 @@ agent-bus work --me lab --dir ~/project --sandbox none   # 旧行为
 agent-bus work --me lab --dir ~/project --keep-worktrees # 保留 worktree 供检查
 ```
 
-docker 档位先构建镜像：
+docker 档位先构建镜像（国内网络可加镜像参数）：
 
 ```bash
 docker build -t agent-bus-worker sandbox/
+# 慢网络：
+docker build \
+  --build-arg DEBIAN_MIRROR=mirrors.tuna.tsinghua.edu.cn \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  -t agent-bus-worker sandbox/
 ```
 
-容器只挂载作业目录，凭证通过环境变量传入（`ANTHROPIC_API_KEY` 等），**不挂载 home**。
+容器只挂载作业目录，凭证通过环境变量传入（`ANTHROPIC_API_KEY` 等），**不挂载 home**；
+容器以非 root 身份运行（镜像自带非 root 用户，运行时用 `--user` 对齐宿主 uid）。
 安全档位由 worker 决定，任务正文里的 `@sandbox:` 指令会被忽略。
 
 ## 可靠性

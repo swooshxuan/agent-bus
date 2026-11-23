@@ -29,6 +29,31 @@ jobs:
       - name: Test
         run: python -m unittest discover -s tests -v
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e .
+      - name: Build sandbox image
+        run: docker build -t agent-bus-worker sandbox/
+      - name: Docker sandbox smoke test
+        run: |
+          mkdir -p /tmp/ab-work
+          ID=$(agent-bus --base /tmp/ab-bus send demo "docker smoke" --body "echo container-ok")
+          agent-bus --base /tmp/ab-bus work --me demo --dir /tmp/ab-work --poll 1 --runner shell --sandbox docker --once
+          agent-bus --base /tmp/ab-bus result "$ID" > /tmp/result.json
+          python - <<'PY'
+          import json
+          data = json.load(open("/tmp/result.json"))
+          assert data["status"] == "ok", data
+          assert "container-ok" in data["result"], data
+          print("docker sandbox OK")
+          PY
+
   windows:
     runs-on: windows-latest
     steps:

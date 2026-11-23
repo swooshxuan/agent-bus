@@ -90,6 +90,12 @@ class Sandbox:
                "--cpus", os.environ.get("AGENT_BUS_DOCKER_CPUS", "2"),
                "--pids-limit", "256",
                "--network", self.network]
+        # Non-root inside the container: the CLI refuses
+        # --dangerously-skip-permissions as root, and matching the caller's
+        # uid keeps the mounted work directory writable.
+        if hasattr(os, "getuid"):
+            cmd += ["--user", "%d:%d" % (os.getuid(), os.getgid())]
+        cmd += ["-e", "HOME=/tmp"]
         for name in names.split(","):
             name = name.strip()
             if name and os.environ.get(name) is not None:
