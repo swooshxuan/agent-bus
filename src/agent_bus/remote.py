@@ -70,6 +70,11 @@ class RemoteStore:
     def requeue(self, target, tid):
         return json.loads(self._run(["requeue", target, tid, "--json"]))
 
+    def reap(self, target, older_seconds=3600):
+        minutes = max(1, int(older_seconds // 60))
+        out = self._run(["reap", target, "--older", str(minutes), "--json"])
+        return json.loads(out)["reaped"]
+
     def complete(self, target, tid, status="ok", result=""):
         return json.loads(self._run(
             ["done", target, tid, "--status", status, "--json"], stdin=result))

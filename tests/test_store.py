@@ -1,7 +1,11 @@
+import json
+import os
 import shutil
 import tempfile
+import time
 import unittest
 
+from agent_bus import store as store_mod
 from agent_bus.store import BusError, Store
 
 
@@ -65,6 +69,34 @@ class StoreTest(unittest.TestCase):
             self.store.get_task("nope")
         with self.assertRaises(BusError):
             self.store.get_result("nope")
+
+    def test_reap_stale_running(self):
+        task = self.store.send("lab", "t")
+        self.assertTrue(self.store.claim("lab", task["id"]))
+        path = os.path.join(self.store.tasks_dir, "lab", task["id"] + ".json")
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["claimed_at"] = time.strftime("%Y-%m-%d %H:%M:%S",
+                                           time.localtime(time.time() - 7200))
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        self.assertEqual(self.store.reap("lab", 3600), [task["id"]])
+        self.assertEqual(self.store.get_task(task["id"])["status"], "pending")
+        self.assertTrue(self.store.claim("lab", task["id"]))
+
+    def test_reap_keeps_fresh_running(self):
+        task = self.store.send("lab", "t")
+        self.assertTrue(self.store.claim("lab", task["id"]))
+        self.assertEqual(self.store.reap("lab", 3600), [])
+        self.assertEqual(self.store.get_task(task["id"])["status"], "running")
+
+    def test_result_truncated(self):
+        task = self.store.send("lab", "t")
+        self.store.claim("lab", task["id"])
+        big = "x" * (store_mod._MAX_RESULT + 50)
+        record = self.store.complete("lab", task["id"], "ok", big)
+        self.assertIn("truncated 50 chars", record["result"])
+        self.assertLess(len(record["result"]), len(big))
 
 
 if __name__ == "__main__":

@@ -208,9 +208,23 @@ def cmd_work(store, args):
         _log("NOTE: 本地模式 —— 任务只读写本地信箱，不会发往远端（用 --remote 或 AGENT_BUS_REMOTE）")
     _log("worker up: me=%s dir=%s poll=%ss runner=%s" % (
         args.me, workdir, args.poll, args.runner))
+    delay = 5
     while True:
-        for task in store.list_tasks(args.me):
-            if not store.claim(args.me, task["id"]):
+        try:
+            tasks = store.list_tasks(args.me)
+        except BusError as exc:
+            _log("bus error: %s — retry in %ss" % (exc, delay))
+            time.sleep(delay)
+            delay = min(delay * 2, 120)
+            continue
+        delay = 5
+        for task in tasks:
+            try:
+                claimed = store.claim(args.me, task["id"])
+            except BusError as exc:
+                _log("claim failed %s: %s" % (task["id"], exc))
+                continue
+            if not claimed:
                 continue
             _log("running %s: %s" % (task["id"], task.get("title", "")))
             try:
@@ -230,8 +244,13 @@ def cmd_work(store, args):
                 status, output = "fail", "timeout after %ss" % args.timeout
             except FileNotFoundError as exc:
                 status, output = "fail", "runner not found: %s" % exc
-            store.complete(args.me, task["id"], status, output)
-            _log("finished %s -> %s" % (task["id"], status))
+            try:
+                store.complete(args.me, task["id"], status, output)
+            except BusError as exc:
+                _log("submit failed %s: %s (left running — use 'agent-bus reap')"
+                     % (task["id"], exc))
+            else:
+                _log("finished %s -> %s" % (task["id"], status))
             if args.once:
                 return 0
         if args.once:
@@ -366,6 +385,15 @@ def cmd_stop(store, args):
     return 0
 
 
+def cmd_reap(store, args):
+    ids = store.reap(args.me, args.older * 60)
+    if args.json:
+        print(json.dumps({"reaped": ids}))
+    else:
+        print("reaped %d task(s)%s" % (len(ids), (": " + ", ".join(ids)) if ids else ""))
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="agent-bus",
@@ -446,6 +474,12 @@ def build_parser():
     p.add_argument("--me", default=None, help="检查某个目标的队列")
     p.add_argument("--dir", default=None, help="检查作业目录")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("reap", help="回收超时未完成的任务")
+    p.add_argument("me")
+    p.add_argument("--older", type=int, default=60, help="超过多少分钟算超时（默认 60）")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_reap)
 
     p = sub.add_parser("status", help="查看后台 worker 状态")
     p.add_argument("--me", required=True)

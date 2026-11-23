@@ -13,6 +13,7 @@ def _write_exec(path, content):
     os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
 
 
+@unittest.skipIf(os.name == "nt", "fake ssh harness requires bash")
 class RemoteStoreTest(unittest.TestCase):
     """Exercise the SSH path without a network: a fake ssh that runs locally."""
 

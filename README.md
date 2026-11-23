@@ -129,6 +129,14 @@ agent-bus stop --me lab
 日志默认写到 `~/.agent-bus/worker/<me>.log`（`--log` 可改）。
 worker 启动时第一行会打印 `mode: REMOTE ...` 或 `mode: LOCAL ...` —— 本地模式会额外警告「任务不会发往远端」。
 
+## 可靠性
+
+- worker 轮询遇网络错误会指数退避重试（5s → 120s），不会退出
+- 结果超过 `AGENT_BUS_MAX_RESULT`（默认 100KB）会截断
+- 执行中崩溃的任务会停留在 `running`：`agent-bus reap --me lab --older 60` 回收
+
+安全模型和加固建议见 [SECURITY.md](SECURITY.md)。
+
 ## 命令参考
 
 | 命令 | 说明 |
@@ -138,6 +146,7 @@ worker 启动时第一行会打印 `mode: REMOTE ...` 或 `mode: LOCAL ...` —�
 | `agent-bus claim <me> <id>` | 原子认领（并发安全） |
 | `agent-bus done <me> <id> [--status ok\|fail]` | 提交结果（缺省从 stdin 读） |
 | `agent-bus requeue <me> <id>` | 把卡住的任务重置为 pending |
+| `agent-bus reap <me> [--older 60]` | 回收超时未完成的任务 |
 | `agent-bus show <id>` / `result <id>` | 查看详情 / 结果 |
 | `agent-bus list` | 总览 |
 | `agent-bus doctor [--me N] [--dir D]` | 环境自检 |

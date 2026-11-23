@@ -14,6 +14,9 @@ import os
 import time
 import uuid
 
+# Results larger than this are truncated before being stored.
+_MAX_RESULT = int(os.environ.get("AGENT_BUS_MAX_RESULT", "100000"))
+
 
 class BusError(Exception):
     """Raised for expected, user-facing failures (bad id, not found, ...)."""
@@ -135,12 +138,45 @@ class Store:
             os.unlink(lock)
         return task
 
+    def reap(self, target, older_seconds=3600):
+        """Requeue tasks stuck in 'running' for longer than older_seconds."""
+        self._check_target(target)
+        folder = os.path.join(self.tasks_dir, target)
+        reaped = []
+        if not os.path.isdir(folder):
+            return reaped
+        cutoff = time.time() - older_seconds
+        for name in sorted(os.listdir(folder)):
+            if not name.endswith(".json"):
+                continue
+            path = os.path.join(folder, name)
+            task = self._read(path)
+            if task.get("status") != "running":
+                continue
+            try:
+                claimed = time.mktime(time.strptime(task.get("claimed_at", ""),
+                                                    "%Y-%m-%d %H:%M:%S"))
+            except ValueError:
+                claimed = 0
+            if claimed and claimed < cutoff:
+                task["status"] = "pending"
+                task.pop("claimed_at", None)
+                self._write(path, task)
+                lock = path + ".lock"
+                if os.path.exists(lock):
+                    os.unlink(lock)
+                reaped.append(task["id"])
+        return reaped
+
     def complete(self, target, tid, status="ok", result=""):
         path = self._task_path(target, tid)
         if not os.path.exists(path):
             raise BusError("task not found: %s" % tid)
         if status not in ("ok", "fail"):
             raise BusError("invalid status: %r" % (status,))
+        if len(result) > _MAX_RESULT:
+            dropped = len(result) - _MAX_RESULT
+            result = result[:_MAX_RESULT] + "\n…[truncated %d chars]" % dropped
         task = self._read(path)
         task["status"] = "done" if status == "ok" else "failed"
         task["finished_at"] = self._now()
