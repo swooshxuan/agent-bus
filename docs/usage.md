@@ -139,10 +139,16 @@ docker 镜像：
 
 ```bash
 docker build -t agent-bus-worker sandbox/
+# 慢网络（国内）：
+docker build --build-arg DEBIAN_MIRROR=mirrors.tuna.tsinghua.edu.cn \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  -t agent-bus-worker sandbox/
 ```
 
 容器只挂作业目录，凭证通过 `ANTHROPIC_API_KEY` 等环境变量传入，不挂 home。
-安全档位由 **worker 侧**决定，任务正文里的 `@sandbox:` 会被忽略。
+容器以**非 root** 身份运行（CLI 拒绝以 root 使用 skip-permissions；运行时用
+`--user` 对齐宿主 uid，`HOME=/tmp`）。安全档位由 **worker 侧**决定，任务正文里的
+`@sandbox:` 会被忽略。
 
 ## 5. 多机协作示例
 

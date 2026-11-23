@@ -1,6 +1,6 @@
 # v0.2 设计：任务沙箱
 
-状态：已确认（默认 `auto`；本轮实现 worktree + docker）
+状态：已实现并实测（worktree 与 docker 均通过；docker 自 0.2.1 起以非 root 运行）
 目标版本：0.2.0
 
 ## 背景与威胁模型
