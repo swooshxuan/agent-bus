@@ -31,6 +31,8 @@ agent-bus 做减法：
 - **最小权限**：worker 的公钥被 `command=` 钉死，只能执行 `agent-bus`
 - **agent 无关**：Claude Code、Codex、Aider、任意 CLI 都能当 worker
 
+> 完整使用手册（配置、任务模板、多机协作、排错）见 **[docs/usage.md](docs/usage.md)**。
+
 ## 快速开始
 
 ### 1. 安装（在信箱主机和每台 worker 上）
