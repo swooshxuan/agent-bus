@@ -90,6 +90,38 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.store.reap("lab", 3600), [])
         self.assertEqual(self.store.get_task(task["id"])["status"], "running")
 
+    def _backdate(self, target, tid, days):
+        path = os.path.join(self.store.tasks_dir, target, tid + ".json")
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["finished_at"] = time.strftime(
+            "%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days * 86400))
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+    def test_prune_removes_only_old_finished(self):
+        old = self.store.send("lab", "old")
+        self.store.claim("lab", old["id"])
+        self.store.complete("lab", old["id"], "ok", "x")
+        new = self.store.send("lab", "new")
+        self.store.claim("lab", new["id"])
+        self.store.complete("lab", new["id"], "ok", "y")
+        self._backdate("lab", old["id"], 10)
+        self.assertEqual(self.store.prune(7 * 86400), [old["id"]])
+        with self.assertRaises(BusError):
+            self.store.get_task(old["id"])
+        with self.assertRaises(BusError):
+            self.store.get_result(old["id"])
+        self.assertEqual(self.store.get_task(new["id"])["status"], "done")
+
+    def test_prune_dry_run_keeps_files(self):
+        task = self.store.send("lab", "t")
+        self.store.claim("lab", task["id"])
+        self.store.complete("lab", task["id"], "ok", "")
+        self._backdate("lab", task["id"], 10)
+        self.assertEqual(self.store.prune(86400, dry_run=True), [task["id"]])
+        self.assertEqual(self.store.get_task(task["id"])["status"], "done")
+
     def test_result_truncated(self):
         task = self.store.send("lab", "t")
         self.store.claim("lab", task["id"])

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+- optional TOML config (`./agent-bus.toml` or
+  `~/.config/agent-bus/config.toml`); command line and env take precedence
+- new `agent-bus prune --older-days N [--dry-run]` removes old finished tasks
+  and their results
+- `tomli` is a dependency only on Python < 3.11
+- worker logs the config file it loaded
+
 ## 0.2.1
 
 - verified the docker sandbox end to end (the CLI refuses

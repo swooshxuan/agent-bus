@@ -64,6 +64,22 @@ pause
 > 注意：`--` 之后的参数是传给 `claude` 的；没有 `--dangerously-skip-permissions`
 > 时，headless 模式下的工具调用会被拒绝，任务只能做文本回复。
 
+### 1.4 配置文件（可选，推荐）
+
+把常用参数写进 `~/.config/agent-bus/config.toml`（或当前目录的 `agent-bus.toml`），
+之后只需 `agent-bus work`：
+
+```toml
+remote = "ubuntu@bus-host"
+remote_key = "~/.ssh/agentbus"
+me = "lab"
+dir = "~/agent-work"
+poll = 20
+sandbox = "auto"
+```
+
+优先级：命令行 > 环境变量 > 配置文件 > 内置默认。示例见 `examples/agent-bus.toml`。
+
 ## 2. 日常操作
 
 ### 2.1 发任务
@@ -177,6 +193,7 @@ agent-bus --remote ... doctor --me laptop --dir D   # 环境、密钥、信箱�
 agent-bus status --me laptop                        # 后台 worker 状态 + 日志尾部
 agent-bus --remote ... tasks lab --all              # 任务卡在哪
 agent-bus --remote ... reap lab --older 60          # 回收卡在 running 的任务
+agent-bus --remote ... prune --older-days 30 --dry-run   # 预览清理旧记录
 ```
 
 | 现象 | 处理 |

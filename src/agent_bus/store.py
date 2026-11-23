@@ -168,6 +168,37 @@ class Store:
                 reaped.append(task["id"])
         return reaped
 
+    def prune(self, older_seconds, dry_run=False):
+        """Remove done/failed tasks and their results older than a cutoff."""
+        removed = []
+        cutoff = time.time() - older_seconds
+        for target in sorted(os.listdir(self.tasks_dir)):
+            folder = os.path.join(self.tasks_dir, target)
+            if not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                if not name.endswith(".json"):
+                    continue
+                path = os.path.join(folder, name)
+                task = self._read(path)
+                if task.get("status") not in ("done", "failed"):
+                    continue
+                stamp = task.get("finished_at") or task.get("created_at") or ""
+                try:
+                    when = time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M:%S"))
+                except ValueError:
+                    continue
+                if when >= cutoff:
+                    continue
+                removed.append(task["id"])
+                if dry_run:
+                    continue
+                for extra in (path, path + ".lock",
+                              os.path.join(self.results_dir, task["id"] + ".json")):
+                    if os.path.exists(extra):
+                        os.unlink(extra)
+        return removed
+
     def complete(self, target, tid, status="ok", result=""):
         path = self._task_path(target, tid)
         if not os.path.exists(path):

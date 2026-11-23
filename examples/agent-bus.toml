@@ -1,0 +1,17 @@
+# agent-bus configuration. Copy to ~/.config/agent-bus/config.toml
+# or ./agent-bus.toml. Command line flags override these values.
+
+# --- mailbox (global) ---
+# base = "/srv/agent-bus"          # local mode
+remote = "ubuntu@bus-host"         # remote mode
+remote_key = "~/.ssh/agentbus"
+
+# --- worker defaults (used by `agent-bus work`) ---
+me = "lab"
+dir = "~/agent-work"
+poll = 20
+timeout = 3600
+runner = "claude"                  # claude | shell
+sandbox = "auto"                   # auto | none | worktree | docker
+# docker_image = "agent-bus-worker:latest"
+# docker_network = "bridge"

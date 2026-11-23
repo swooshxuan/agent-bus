@@ -90,6 +90,23 @@ agent-bus work --me lab --dir ~/agent-work         # worker 也走远程
 
 MCP 同理：`AGENT_BUS_REMOTE=... claude mcp add agent-bus -- agent-bus-mcp`。
 
+### 配置文件（可选）
+
+常用参数可以写进 TOML，省去每次敲长命令：
+
+```toml
+# ~/.config/agent-bus/config.toml 或 ./agent-bus.toml
+remote = "ubuntu@bus-host"
+remote_key = "~/.ssh/agentbus"
+me = "lab"
+dir = "~/agent-work"
+poll = 20
+sandbox = "auto"
+```
+
+优先级：**命令行 > 环境变量 > 配置文件 > 内置默认**。完整示例见
+`examples/agent-bus.toml`；Python 3.8–3.10 会自动安装 `tomli`。
+
 ## 任务模板（推荐）
 
 任务正文按统一结构写，任何 agent 都能读懂，能显著减少「自由发挥」：
@@ -163,6 +180,7 @@ docker build \
 - worker 轮询遇网络错误会指数退避重试（5s → 120s），不会退出
 - 结果超过 `AGENT_BUS_MAX_RESULT`（默认 100KB）会截断
 - 执行中崩溃的任务会停留在 `running`：`agent-bus reap --me lab --older 60` 回收
+- 旧记录定期清理：`agent-bus prune --older-days 30`（先加 `--dry-run` 预览）
 
 安全模型和加固建议见 [SECURITY.md](SECURITY.md)。
 
@@ -176,6 +194,7 @@ docker build \
 | `agent-bus done <me> <id> [--status ok\|fail]` | 提交结果（缺省从 stdin 读） |
 | `agent-bus requeue <me> <id>` | 把卡住的任务重置为 pending |
 | `agent-bus reap <me> [--older 60]` | 回收超时未完成的任务 |
+| `agent-bus prune [--older-days 30] [--dry-run]` | 清理旧的已完成任务和结果 |
 | `agent-bus show <id>` / `result <id>` | 查看详情 / 结果 |
 | `agent-bus list` | 总览 |
 | `agent-bus doctor [--me N] [--dir D]` | 环境自检 |

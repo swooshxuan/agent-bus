@@ -12,6 +12,7 @@ import sys
 import time
 
 from . import __version__
+from .config import load_config
 from .remote import RemoteStore
 from .sandbox import Sandbox, SandboxError
 from .store import BusError, Store
@@ -212,6 +213,8 @@ def cmd_work(store, args):
         extra = extra[1:]
     runner = _run_claude if args.runner == "claude" else _run_shell
     _log("mode: %s" % getattr(args, "_mode", "unknown"))
+    if getattr(args, "_config", None):
+        _log("config: %s" % args._config)
     if not getattr(args, "_remote", False):
         _log("NOTE: 本地模式 —— 任务只读写本地信箱，不会发往远端（用 --remote 或 AGENT_BUS_REMOTE）")
     _log("worker up: me=%s dir=%s poll=%ss runner=%s" % (
@@ -420,6 +423,18 @@ def cmd_stop(store, args):
     return 0
 
 
+def cmd_prune(store, args):
+    removed = store.prune(args.older_days * 86400, dry_run=args.dry_run)
+    if args.json:
+        print(json.dumps({"removed": removed}))
+    else:
+        verb = "would remove" if args.dry_run else "removed"
+        print("%s %d task(s)%s" % (
+            verb, len(removed),
+            (": " + ", ".join(removed)) if removed else ""))
+    return 0
+
+
 def cmd_reap(store, args):
     ids = store.reap(args.me, args.older * 60)
     if args.json:
@@ -433,12 +448,15 @@ def build_parser():
     parser = argparse.ArgumentParser(
         prog="agent-bus",
         description="跨机 agent 任务信箱：SSH 为传输，文件为存储。")
+    parser.add_argument("--config", default=None,
+                        help="配置文件路径（默认 ./agent-bus.toml 或 "
+                             "$AGENT_BUS_CONFIG）")
     parser.add_argument("--base", default=None,
                         help="信箱根目录（默认 $AGENT_BUS_DIR 或 ~/.agent-bus）")
-    parser.add_argument("--remote", default=os.environ.get("AGENT_BUS_REMOTE"),
-                        help="远程信箱主机 user@host（默认 $AGENT_BUS_REMOTE）")
+    parser.add_argument("--remote", default=None,
+                        help="远程信箱主机 user@host（默认 $AGENT_BUS_REMOTE 或配置）")
     parser.add_argument("--remote-key", default=None,
-                        help="远程 SSH 私钥（默认 $AGENT_BUS_SSH_KEY）")
+                        help="远程 SSH 私钥（默认 $AGENT_BUS_SSH_KEY 或配置）")
     sub = parser.add_subparsers(dest="cmd")
     sub.required = True
 
@@ -492,19 +510,19 @@ def build_parser():
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("work", help="作为 worker 循环执行任务")
-    p.add_argument("--me", required=True, help="本机在信箱里的名字")
-    p.add_argument("--dir", default=".", help="runner 的工作目录")
-    p.add_argument("--poll", type=int, default=20, help="轮询间隔（秒）")
-    p.add_argument("--timeout", type=int, default=3600, help="单任务超时（秒）")
-    p.add_argument("--runner", choices=["claude", "shell"], default="claude",
+    p.add_argument("--me", default=None, help="本机在信箱里的名字（也可写在配置里）")
+    p.add_argument("--dir", default=None, help="runner 的工作目录")
+    p.add_argument("--poll", type=int, default=None, help="轮询间隔（秒，默认 20）")
+    p.add_argument("--timeout", type=int, default=None, help="单任务超时（秒，默认 3600）")
+    p.add_argument("--runner", choices=["claude", "shell"], default=None,
                    help="claude: claude -p <body>；shell: 把 body 当 shell 命令")
     p.add_argument("--sandbox", choices=["auto", "none", "worktree", "docker"],
-                   default="auto", help="任务沙箱（默认 auto）")
+                   default=None, help="任务沙箱（默认 auto）")
     p.add_argument("--keep-worktrees", action="store_true",
                    help="任务完成后保留 worktree")
     p.add_argument("--docker-image", default=None,
                    help="docker 沙箱镜像（默认 $AGENT_BUS_DOCKER_IMAGE 或 agent-bus-worker:latest）")
-    p.add_argument("--docker-network", choices=["bridge", "none"], default="bridge")
+    p.add_argument("--docker-network", choices=["bridge", "none"], default=None)
     p.add_argument("--once", action="store_true", help="最多处理一个任务后退出")
     p.add_argument("--detach", action="store_true", help="后台运行（日志写入文件）")
     p.add_argument("--log", default=None, help="后台模式的日志路径")
@@ -524,12 +542,19 @@ def build_parser():
     p.set_defaults(func=cmd_reap)
 
     p = sub.add_parser("status", help="查看后台 worker 状态")
-    p.add_argument("--me", required=True)
+    p.add_argument("--me", default=None)
     p.set_defaults(func=cmd_status)
 
     p = sub.add_parser("stop", help="停止后台 worker")
-    p.add_argument("--me", required=True)
+    p.add_argument("--me", default=None)
     p.set_defaults(func=cmd_stop)
+
+    p = sub.add_parser("prune", help="清理旧的已完成任务和结果")
+    p.add_argument("--older-days", type=int, default=30,
+                   help="保留最近多少天（默认 30）")
+    p.add_argument("--dry-run", action="store_true", help="只显示将删除的内容")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_prune)
 
     return parser
 
@@ -544,10 +569,46 @@ def _force_utf8_stdio():
                 pass
 
 
+def _apply_config(args, cfg):
+    args.remote = args.remote or os.environ.get("AGENT_BUS_REMOTE") or cfg.get("remote")
+    args.remote_key = (args.remote_key or os.environ.get("AGENT_BUS_SSH_KEY")
+                       or cfg.get("remote_key"))
+    args.base = args.base or os.environ.get("AGENT_BUS_DIR") or cfg.get("base")
+    if args.base:
+        args.base = os.path.expanduser(args.base)
+    if args.remote_key:
+        args.remote_key = os.path.expanduser(args.remote_key)
+
+    cmd = args.cmd
+    if cmd in ("work", "status", "stop", "doctor") and not getattr(args, "me", None):
+        args.me = cfg.get("me")
+    if cmd == "work":
+        if not args.me:
+            raise BusError("--me is required (or set 'me' in the config)")
+        args.dir = os.path.expanduser(args.dir or cfg.get("dir") or ".")
+        args.poll = args.poll if args.poll is not None else int(cfg.get("poll", 20))
+        args.timeout = args.timeout if args.timeout is not None else int(cfg.get("timeout", 3600))
+        args.sandbox = args.sandbox or cfg.get("sandbox") or "auto"
+        args.runner = args.runner or cfg.get("runner") or "claude"
+        args.docker_network = args.docker_network or cfg.get("docker_network") or "bridge"
+        args.docker_image = args.docker_image or cfg.get("docker_image")
+    elif cmd in ("status", "stop"):
+        if not args.me:
+            raise BusError("--me is required (or set 'me' in the config)")
+    elif cmd == "doctor" and not args.dir and cfg.get("dir"):
+        args.dir = cfg["dir"]
+
+
 def main(argv=None):
     _force_utf8_stdio()
     raw = list(sys.argv[1:]) if argv is None else list(argv)
     args = build_parser().parse_args(raw)
+    try:
+        cfg, cfg_path = load_config(args.config)
+        _apply_config(args, cfg)
+    except BusError as exc:
+        sys.stderr.write("agent-bus: %s\n" % exc)
+        return 1
     if args.remote:
         store = RemoteStore(args.remote, base=args.base, key=args.remote_key)
         mode = "REMOTE " + args.remote
@@ -559,6 +620,7 @@ def main(argv=None):
     args._raw = raw
     args._mode = mode
     args._remote = bool(args.remote)
+    args._config = cfg_path
     try:
         return args.func(store, args) or 0
     except BusError as exc:

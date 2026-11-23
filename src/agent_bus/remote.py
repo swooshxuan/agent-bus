@@ -70,6 +70,13 @@ class RemoteStore:
     def requeue(self, target, tid):
         return json.loads(self._run(["requeue", target, tid, "--json"]))
 
+    def prune(self, older_seconds, dry_run=False):
+        days = max(1, int(older_seconds // 86400))
+        args = ["prune", "--older-days", str(days), "--json"]
+        if dry_run:
+            args.append("--dry-run")
+        return json.loads(self._run(args))["removed"]
+
     def reap(self, target, older_seconds=3600):
         minutes = max(1, int(older_seconds // 60))
         out = self._run(["reap", target, "--older", str(minutes), "--json"])
