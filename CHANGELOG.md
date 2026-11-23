@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- per-task sandboxes: `--sandbox auto|none|worktree|docker` (default `auto`)
+  - `worktree`: isolated git worktree per task; diff summary captured in the result
+  - `docker`: run inside a container with only the work directory mounted;
+    credentials are passed as environment variables, home is never mounted
+- `doctor` reports git/docker availability
+- sandbox policy is worker-side; `@sandbox:` in task bodies is ignored
+- Dockerfile for the worker image in `sandbox/`
+
 ## 0.1.5
 
 - fix: force UTF-8 stdio so Chinese help and messages do not crash on

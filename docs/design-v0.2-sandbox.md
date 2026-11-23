@@ -1,6 +1,6 @@
 # v0.2 设计：任务沙箱
 
-状态：草案（待确认）
+状态：已确认（默认 `auto`；本轮实现 worktree + docker）
 目标版本：0.2.0
 
 ## 背景与威胁模型
@@ -138,7 +138,7 @@ agent-bus work --me N --dir D [--sandbox auto|none|worktree|docker]
 - [ ] 无 Docker 时 `--sandbox docker` 立即报错退出
 - [ ] CI 覆盖 worktree 测试（Linux + Windows），docker 测试按可用性 skip
 
-## 待确认
+## 决策记录
 
-1. 默认值用 `auto`（推荐）还是保持 `none`？
-2. docker 镜像：仓库内 Dockerfile 本地构建（推荐）还是发布到 ghcr.io？
+1. 默认值：`auto`（git 仓库 → worktree；否则 none + 警告）
+2. docker 镜像：仓库内 `sandbox/Dockerfile` 本地构建（`docker build -t agent-bus-worker sandbox/`）

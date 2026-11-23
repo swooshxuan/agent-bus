@@ -21,7 +21,9 @@ agent-bus is a task mailbox. Workers execute whatever task lands in their queue.
   ```
 
 - Run workers under a dedicated low-privilege account, ideally in a container
-  or VM, and point `--dir` at a throwaway workspace.
+  or VM, and point `--dir` at a throwaway workspace. Prefer
+  `--sandbox docker` (or at least the default `auto`, which uses a git
+  worktree) so tasks cannot modify your main checkout.
 - Treat the bus as a trust boundary: only let trusted agents and humans send
   tasks. Anyone who can reach the bus can queue code for every worker.
 - Keep the bus host patched; put fail2ban in front of SSH and prefer a

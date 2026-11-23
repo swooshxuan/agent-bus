@@ -13,6 +13,7 @@ import time
 
 from . import __version__
 from .remote import RemoteStore
+from .sandbox import Sandbox, SandboxError
 from .store import BusError, Store
 
 # A task body may start with "@workdir: /path/to/project" to choose the
@@ -85,14 +86,21 @@ def _pid_alive(pid):
         return False
 
 
-def _run_claude(body, extra, workdir, timeout):
+def _run_claude(body, extra, workdir, timeout, wrap=None):
     argv = ["claude", "-p", body, "--output-format", "text"] + extra
+    if wrap is not None:
+        argv = wrap(argv)
     return subprocess.run(argv, cwd=workdir, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
                           timeout=timeout)
 
 
-def _run_shell(body, extra, workdir, timeout):
+def _run_shell(body, extra, workdir, timeout, wrap=None):
+    if wrap is not None:
+        argv = wrap(["bash", "-lc", body])
+        return subprocess.run(argv, cwd=workdir, capture_output=True,
+                              text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout)
     return subprocess.run(body, shell=True, cwd=workdir, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
                           timeout=timeout)
@@ -227,23 +235,43 @@ def cmd_work(store, args):
             if not claimed:
                 continue
             _log("running %s: %s" % (task["id"], task.get("title", "")))
+            sandbox = None
+            status, output = "fail", ""
             try:
                 body = store.get_task(task["id"]).get("body", "")
                 task_dir, body = _split_workdir(body)
                 task_dir = os.path.expanduser(task_dir) if task_dir else workdir
                 if not os.path.isdir(task_dir):
-                    status = "fail"
                     output = "workdir not found: %s" % task_dir
                 else:
-                    proc = runner(body, extra, task_dir, args.timeout)
+                    sandbox = Sandbox(args.sandbox, task_dir, task["id"],
+                                      log=_log, keep=args.keep_worktrees,
+                                      image=args.docker_image,
+                                      network=args.docker_network)
+                    _log("sandbox: %s (dir: %s)" % (sandbox.mode, sandbox.run_dir))
+                    wrap = sandbox.wrap if sandbox.mode == "docker" else None
+                    proc = runner(body, extra, sandbox.run_dir, args.timeout, wrap)
                     status = "ok" if proc.returncode == 0 else "fail"
                     output = proc.stdout or ""
                     if proc.stderr:
                         output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
+            except SandboxError as exc:
+                output = "sandbox error: %s" % exc
             except subprocess.TimeoutExpired:
                 status, output = "fail", "timeout after %ss" % args.timeout
             except FileNotFoundError as exc:
                 status, output = "fail", "runner not found: %s" % exc
+            finally:
+                if sandbox is not None:
+                    try:
+                        info = sandbox.finish()
+                    except Exception as exc:  # noqa: BLE001
+                        info = {"mode": sandbox.mode, "cleanup_error": repr(exc)}
+                    if info.get("diff_stat"):
+                        output += "\n\n--- sandbox (worktree) ---\n" + info["diff_stat"]
+                        if info.get("diff"):
+                            output += "\n" + info["diff"]
+                    _log("sandbox %s finished" % info.get("mode"))
             try:
                 store.complete(args.me, task["id"], status, output)
             except BusError as exc:
@@ -320,6 +348,13 @@ def cmd_doctor(store, args):
             check("WARN", "claude found but --version failed: %r" % exc)
     else:
         check("WARN", "claude not found (needed only for --runner claude)")
+
+    git = shutil.which("git")
+    check("PASS" if git else "WARN", "git: %s" % (
+        git or "not found (worktree sandbox disabled)"))
+    docker = shutil.which("docker")
+    check("PASS" if docker else "WARN", "docker: %s" % (
+        docker or "not found (docker sandbox disabled)"))
 
     if args.dir:
         target = os.path.abspath(os.path.expanduser(args.dir))
@@ -463,6 +498,13 @@ def build_parser():
     p.add_argument("--timeout", type=int, default=3600, help="单任务超时（秒）")
     p.add_argument("--runner", choices=["claude", "shell"], default="claude",
                    help="claude: claude -p <body>；shell: 把 body 当 shell 命令")
+    p.add_argument("--sandbox", choices=["auto", "none", "worktree", "docker"],
+                   default="auto", help="任务沙箱（默认 auto）")
+    p.add_argument("--keep-worktrees", action="store_true",
+                   help="任务完成后保留 worktree")
+    p.add_argument("--docker-image", default=None,
+                   help="docker 沙箱镜像（默认 $AGENT_BUS_DOCKER_IMAGE 或 agent-bus-worker:latest）")
+    p.add_argument("--docker-network", choices=["bridge", "none"], default="bridge")
     p.add_argument("--once", action="store_true", help="最多处理一个任务后退出")
     p.add_argument("--detach", action="store_true", help="后台运行（日志写入文件）")
     p.add_argument("--log", default=None, help="后台模式的日志路径")

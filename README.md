@@ -129,6 +129,26 @@ agent-bus stop --me lab
 日志默认写到 `~/.agent-bus/worker/<me>.log`（`--log` 可改）。
 worker 启动时第一行会打印 `mode: REMOTE ...` 或 `mode: LOCAL ...` —— 本地模式会额外警告「任务不会发往远端」。
 
+## 沙箱（v0.2）
+
+`work` 默认 `--sandbox auto`：**git 仓库自动使用 worktree**（每个任务一个独立副本，结果里带 diff 统计），非 git 目录退回 `none` 并打印警告。
+
+```bash
+agent-bus work --me lab --dir ~/project                  # auto → worktree
+agent-bus work --me lab --dir ~/project --sandbox docker # 容器隔离
+agent-bus work --me lab --dir ~/project --sandbox none   # 旧行为
+agent-bus work --me lab --dir ~/project --keep-worktrees # 保留 worktree 供检查
+```
+
+docker 档位先构建镜像：
+
+```bash
+docker build -t agent-bus-worker sandbox/
+```
+
+容器只挂载作业目录，凭证通过环境变量传入（`ANTHROPIC_API_KEY` 等），**不挂载 home**。
+安全档位由 worker 决定，任务正文里的 `@sandbox:` 指令会被忽略。
+
 ## 可靠性
 
 - worker 轮询遇网络错误会指数退避重试（5s → 120s），不会退出
@@ -150,7 +170,7 @@ worker 启动时第一行会打印 `mode: REMOTE ...` 或 `mode: LOCAL ...` —�
 | `agent-bus show <id>` / `result <id>` | 查看详情 / 结果 |
 | `agent-bus list` | 总览 |
 | `agent-bus doctor [--me N] [--dir D]` | 环境自检 |
-| `agent-bus work --me N --dir D [--detach] [--log F]` | worker 循环（可后台） |
+| `agent-bus work --me N --dir D [--sandbox auto\|none\|worktree\|docker] [--detach] [--log F]` | worker 循环（可后台、可沙箱） |
 | `agent-bus status --me N` / `stop --me N` | 后台 worker 状态 / 停止 |
 
 ## 接入 Claude Code（MCP）
