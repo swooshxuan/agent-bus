@@ -87,6 +87,25 @@ agent-bus work --me lab --dir ~/agent-work         # worker 也走远程
 
 MCP 同理：`AGENT_BUS_REMOTE=... claude mcp add agent-bus -- agent-bus-mcp`。
 
+## 任务模板（推荐）
+
+任务正文按统一结构写，任何 agent 都能读懂，能显著减少「自由发挥」：
+
+```text
+@workdir: /home/you/project        # 可选；必须是第一行，worker 会 cd 到这里
+# 任务
+把 data/ 下的 CSV 汇总成 report.md
+# 验收标准
+- report.md 存在，包含所有 CSV 的汇总
+- 用中文
+# 背景 / 约束
+- 不要修改原始数据
+```
+
+- `@workdir` 只对用 `agent-bus work` 的 worker 生效；不写就用 worker 的 `--dir`
+- 验收标准是写给执行任务的 agent 看的 —— 它会据此自检
+- 示例见 `examples/task-template.md`
+
 ## 命令参考
 
 | 命令 | 说明 |

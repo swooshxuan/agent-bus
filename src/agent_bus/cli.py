@@ -3,12 +3,27 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 
 from .remote import RemoteStore
 from .store import BusError, Store
+
+# A task body may start with "@workdir: /path/to/project" to choose the
+# directory the runner executes in (falls back to --dir).
+_WORKDIR_RE = re.compile(r"^@workdir:\s*(.+?)\s*$")
+
+
+def _split_workdir(body):
+    """Return (workdir or None, body without the directive line)."""
+    lines = body.splitlines()
+    if lines:
+        match = _WORKDIR_RE.match(lines[0].strip())
+        if match:
+            return match.group(1), "\n".join(lines[1:]).lstrip("\n")
+    return None, body
 
 
 def _body(args):
@@ -130,11 +145,17 @@ def cmd_work(store, args):
             _log("running %s: %s" % (task["id"], task.get("title", "")))
             try:
                 body = store.get_task(task["id"]).get("body", "")
-                proc = runner(body, extra, workdir, args.timeout)
-                status = "ok" if proc.returncode == 0 else "fail"
-                output = proc.stdout or ""
-                if proc.stderr:
-                    output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
+                task_dir, body = _split_workdir(body)
+                task_dir = os.path.expanduser(task_dir) if task_dir else workdir
+                if not os.path.isdir(task_dir):
+                    status = "fail"
+                    output = "workdir not found: %s" % task_dir
+                else:
+                    proc = runner(body, extra, task_dir, args.timeout)
+                    status = "ok" if proc.returncode == 0 else "fail"
+                    output = proc.stdout or ""
+                    if proc.stderr:
+                        output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
             except subprocess.TimeoutExpired:
                 status, output = "fail", "timeout after %ss" % args.timeout
             except FileNotFoundError as exc:
