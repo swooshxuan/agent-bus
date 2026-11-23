@@ -80,6 +80,9 @@ sandbox = "auto"
 
 优先级：命令行 > 环境变量 > 配置文件 > 内置默认。示例见 `examples/agent-bus.toml`。
 
+> Windows 路径注意：TOML 基本字符串会把 `\` 当作转义符。请写成
+> `dir = 'C:\Users\you\agent-work'`（单引号，字面量）或 `dir = "C:/Users/you/agent-work"`。
+
 ## 2. 日常操作
 
 ### 2.1 发任务

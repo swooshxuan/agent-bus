@@ -35,8 +35,10 @@ class ConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = os.path.join(tmp, "bus")
             cfg = os.path.join(tmp, "agent-bus.toml")
+            # TOML basic strings treat backslashes as escapes; Windows paths
+            # are written with forward slashes (accepted by the OS).
             with open(cfg, "w", encoding="utf-8") as fh:
-                fh.write('base = "%s"\n' % base)
+                fh.write('base = "%s"\n' % base.replace("\\", "/"))
             self.assertEqual(main(["--config", cfg, "list"]), 0)
 
 
