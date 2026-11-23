@@ -1,0 +1,80 @@
+"""Client that talks to a bus host over SSH.
+
+This is what makes agent-bus NAT-friendly: the worker only needs outbound SSH
+to the bus host. Pin the key with ``command="agent-bus-gate"`` on the bus host
+and the worker can do nothing else on it.
+"""
+
+import json
+import os
+import shlex
+import subprocess
+
+from .store import BusError
+
+
+class RemoteStore:
+    """Same interface as :class:`agent_bus.store.Store`, backed by SSH."""
+
+    def __init__(self, host, base=None, key=None):
+        self.host = host
+        self.base = base
+        self.key = key or os.environ.get("AGENT_BUS_SSH_KEY")
+        self.cmd = os.environ.get("AGENT_BUS_REMOTE_CMD", "agent-bus")
+        self.ssh_bin = os.environ.get("AGENT_BUS_SSH_BIN", "ssh")
+
+    def _ssh(self):
+        argv = [self.ssh_bin, "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=10",
+                "-o", "StrictHostKeyChecking=accept-new"]
+        port = os.environ.get("AGENT_BUS_SSH_PORT")
+        if port:
+            argv += ["-p", port]
+        if self.key:
+            argv += ["-i", self.key]
+        argv.append(self.host)
+        return argv
+
+    def _run(self, args, stdin=None, ok_codes=(0,)):
+        remote = self.cmd
+        if self.base:
+            remote += " --base " + shlex.quote(self.base)
+        remote += " " + " ".join(shlex.quote(a) for a in args)
+        proc = subprocess.run(self._ssh() + [remote], input=stdin,
+                              capture_output=True, text=True)
+        if proc.returncode not in ok_codes:
+            raise BusError(proc.stderr.strip() or "remote agent-bus failed")
+        return proc.stdout
+
+    def send(self, target, title, body="", sender=None):
+        args = ["send", target, title, "--json"]
+        if sender:
+            args += ["--from", sender]
+        return json.loads(self._run(args, stdin=body))
+
+    def list_tasks(self, target, include_all=False):
+        args = ["tasks", target, "--json"] + (["--all"] if include_all else [])
+        return json.loads(self._run(args))
+
+    def get_task(self, tid, target=None):
+        args = ["show", tid, "--json"]
+        if target:
+            args += ["--target", target]
+        return json.loads(self._run(args))
+
+    def claim(self, target, tid):
+        out = self._run(["claim", target, tid, "--json"], ok_codes=(0, 1))
+        return json.loads(out)["claimed"]
+
+    def requeue(self, target, tid):
+        return json.loads(self._run(["requeue", target, tid, "--json"]))
+
+    def complete(self, target, tid, status="ok", result=""):
+        return json.loads(self._run(
+            ["done", target, tid, "--status", status, "--json"], stdin=result))
+
+    def get_result(self, tid):
+        return json.loads(self._run(["result", tid, "--json"]))
+
+    def stats(self):
+        return json.loads(self._run(["list", "--json"]))

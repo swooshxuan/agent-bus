@@ -1,0 +1,19 @@
+# systemd user service for a Claude Code worker.
+# Install: ~/.config/systemd/user/agent-worker.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agent-worker
+#   sudo loginctl enable-linger $USER   # survive logout/reboot
+[Unit]
+Description=agent-bus worker (Claude Code task executor)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/agent-bus work --me lab --dir %h/agent-work --poll 20 -- --dangerously-skip-permissions --max-turns 30
+Restart=on-failure
+RestartSec=10
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target

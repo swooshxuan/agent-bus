@@ -1,0 +1,4 @@
+# On the bus host, pin each worker's public key to agent-bus-gate.
+# This key can ONLY run `agent-bus ...` — no shell, no port forwarding.
+#
+# command="agent-bus-gate",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... lab-agent-bus

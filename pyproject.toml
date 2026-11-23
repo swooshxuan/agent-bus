@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-bus"
+version = "0.1.0"
+description = "A tiny, SSH-native, human-readable task mailbox for cross-machine AI agents"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+authors = [{ name = "SwooshXuan" }]
+keywords = ["ai-agents", "claude-code", "mcp", "orchestration", "ssh", "nat"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Distributed Computing",
+]
+
+[project.urls]
+Homepage = "https://github.com/swooshxuan/agent-bus"
+
+[project.scripts]
+agent-bus = "agent_bus.cli:main"
+agent-bus-mcp = "agent_bus.mcp_server:main"
+agent-bus-gate = "agent_bus.gate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
