@@ -37,12 +37,14 @@ def _print_tasks(tasks):
 def _run_claude(body, extra, workdir, timeout):
     argv = ["claude", "-p", body, "--output-format", "text"] + extra
     return subprocess.run(argv, cwd=workdir, capture_output=True,
-                          text=True, timeout=timeout)
+                          text=True, encoding="utf-8", errors="replace",
+                          timeout=timeout)
 
 
 def _run_shell(body, extra, workdir, timeout):
     return subprocess.run(body, shell=True, cwd=workdir, capture_output=True,
-                          text=True, timeout=timeout)
+                          text=True, encoding="utf-8", errors="replace",
+                          timeout=timeout)
 
 
 def cmd_send(store, args):

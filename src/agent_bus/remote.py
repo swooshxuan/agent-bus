@@ -41,7 +41,8 @@ class RemoteStore:
             remote += " --base " + shlex.quote(self.base)
         remote += " " + " ".join(shlex.quote(a) for a in args)
         proc = subprocess.run(self._ssh() + [remote], input=stdin,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
         if proc.returncode not in ok_codes:
             raise BusError(proc.stderr.strip() or "remote agent-bus failed")
         return proc.stdout
