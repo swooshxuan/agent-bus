@@ -106,6 +106,29 @@ MCP 同理：`AGENT_BUS_REMOTE=... claude mcp add agent-bus -- agent-bus-mcp`。
 - 验收标准是写给执行任务的 agent 看的 —— 它会据此自检
 - 示例见 `examples/task-template.md`
 
+## 自检与后台运行
+
+接入新机器时先跑一次自检，它会逐项检查：模式（本地/远程）、Python、SSH 客户端、密钥、信箱可达性、Claude、作业目录。
+
+```bash
+agent-bus --remote ubuntu@bus-host --remote-key ~/.ssh/agentbus \
+  doctor --me lab --dir ~/agent-work
+```
+
+每项输出 `PASS` / `WARN` / `FAIL`，最后一行是 `RESULT: OK` 或 `FAILED`（有 FAIL 时退出码非 0）。
+
+后台运行（关闭终端也不停）：
+
+```bash
+agent-bus --remote ubuntu@bus-host --remote-key ~/.ssh/agentbus \
+  work --me lab --detach
+agent-bus status --me lab     # RUNNING/STOPPED + 最近日志
+agent-bus stop --me lab
+```
+
+日志默认写到 `~/.agent-bus/worker/<me>.log`（`--log` 可改）。
+worker 启动时第一行会打印 `mode: REMOTE ...` 或 `mode: LOCAL ...` —— 本地模式会额外警告「任务不会发往远端」。
+
 ## 命令参考
 
 | 命令 | 说明 |
@@ -117,7 +140,9 @@ MCP 同理：`AGENT_BUS_REMOTE=... claude mcp add agent-bus -- agent-bus-mcp`。
 | `agent-bus requeue <me> <id>` | 把卡住的任务重置为 pending |
 | `agent-bus show <id>` / `result <id>` | 查看详情 / 结果 |
 | `agent-bus list` | 总览 |
-| `agent-bus work --me N --dir D --runner claude\|shell` | worker 循环 |
+| `agent-bus doctor [--me N] [--dir D]` | 环境自检 |
+| `agent-bus work --me N --dir D [--detach] [--log F]` | worker 循环（可后台） |
+| `agent-bus status --me N` / `stop --me N` | 后台 worker 状态 / 停止 |
 
 ## 接入 Claude Code（MCP）
 
