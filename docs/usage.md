@@ -15,7 +15,7 @@
 ### 1.1 信箱主机
 
 ```bash
-pip install agent-bus
+pip install agents-bus                       # 命令仍是 agent-bus
 export AGENT_BUS_DIR=/srv/agent-bus          # 建议写入 ~/.bashrc
 agent-bus list                               # 创建目录并确认可用
 ```
@@ -29,7 +29,7 @@ command="agent-bus-gate",no-port-forwarding,no-X11-forwarding,no-agent-forwardin
 ### 1.2 worker 机器
 
 ```bash
-pip install agent-bus
+pip install agents-bus
 agent-bus --remote ubuntu@bus-host --remote-key ~/.ssh/agentbus \
   doctor --me lab --dir ~/agent-work
 ```

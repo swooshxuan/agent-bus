@@ -2,6 +2,7 @@
 
 ## 0.2.0
 
+- PyPI distribution name is `agents-bus` (the CLI command remains `agent-bus`)
 - per-task sandboxes: `--sandbox auto|none|worktree|docker` (default `auto`)
   - `worktree`: isolated git worktree per task; diff summary captured in the result
   - `docker`: run inside a container with only the work directory mounted;

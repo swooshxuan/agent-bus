@@ -1,6 +1,7 @@
 # agent-bus
 
 [![CI](https://github.com/swooshxuan/agent-bus/actions/workflows/ci.yml/badge.svg)](https://github.com/swooshxuan/agent-bus/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agents-bus.svg)](https://pypi.org/project/agents-bus/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](pyproject.toml)
 
@@ -20,7 +21,7 @@
 ## 为什么
 
 现有的多智能体编排方案大多假设：公网可达、有消息中间件、有容器编排。
-但个人/实验室的常态是：笔记本在移动宽带 CGNAT 后面、服务器在网段后面、
+但个人/实验室的常态是：笔记本在移动宽带 CGNAT 后面、服务器在校园网后面、
 你想让它们上面的 Claude Code / Codex / 脚本协作一次。
 
 agent-bus 做减法：
@@ -38,7 +39,7 @@ agent-bus 做减法：
 ### 1. 安装（在信箱主机和每台 worker 上）
 
 ```bash
-pip install agent-bus          # 或 pip install -e .
+pip install agents-bus         # 或 pip install -e .（命令仍是 agent-bus）
 agent-bus --help
 ```
 
@@ -201,9 +202,15 @@ claude mcp add agent-bus -- agent-bus-mcp
 | 可审计 | 纯 JSON 文件 | 事件流 | SQLite | 平台日志 |
 | 规模 | 个人/小团队 | 中 | 中 | 大 |
 
-agent-bus 不打算赢过重型编排平台，它占的是**几百行、五分钟、两台机器**这个角落。
+agent-bus 不打算赢过重型编排平台，它占的是「**几百行、五分钟、两台机器**」这个角落。
 
+## Roadmap
 
+- [ ] `--worktree`：每任务独立 git worktree / 容器隔离
+- [ ] 任务签名与来源校验
+- [ ] HTTP / Redis 传输后端（保持文件存储不变）
+- [ ] `agent-bus watch` 实时日志
+- [ ] Windows worker 一键脚本
 
 ## License
 
