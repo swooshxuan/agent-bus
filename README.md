@@ -201,15 +201,9 @@ claude mcp add agent-bus -- agent-bus-mcp
 | 可审计 | 纯 JSON 文件 | 事件流 | SQLite | 平台日志 |
 | 规模 | 个人/小团队 | 中 | 中 | 大 |
 
-agent-bus 不打算赢过重型编排平台，它占的是「**几百行、五分钟、两台机器**」这个角落。
+agent-bus 不打算赢过重型编排平台，它占的是**几百行、五分钟、两台机器**这个角落。
 
-## Roadmap
 
-- [ ] `--worktree`：每任务独立 git worktree / 容器隔离
-- [ ] 任务签名与来源校验
-- [ ] HTTP / Redis 传输后端（保持文件存储不变）
-- [ ] `agent-bus watch` 实时日志
-- [ ] Windows worker 一键脚本
 
 ## License
 
