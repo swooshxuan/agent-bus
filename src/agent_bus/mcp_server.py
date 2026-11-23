@@ -13,6 +13,7 @@ import sys
 
 from . import __version__
 from .remote import RemoteStore
+from .signing import sign_task
 from .store import BusError, Store
 
 TOOLS = [
@@ -99,8 +100,13 @@ def _text(payload):
 
 def _call_tool(store, name, args):
     if name == "send_task":
-        return store.send(args["target"], args["title"],
-                          args.get("body", ""), args.get("sender"))
+        body = args.get("body", "")
+        sender = args.get("sender") or os.environ.get("USER", "unknown")
+        sig = None
+        key = os.environ.get("AGENT_BUS_SIGNING_KEY")
+        if key:
+            sig = sign_task(key, args["target"], args["title"], body, sender)
+        return store.send(args["target"], args["title"], body, sender, sig=sig)
     if name == "list_tasks":
         return store.list_tasks(args["target"], bool(args.get("include_all")))
     if name == "claim_task":

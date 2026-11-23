@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- task signing with a shared HMAC key (`AGENT_BUS_SIGNING_KEY` / `signing_key`);
+  `send` signs target/title/body/sender automatically
+- workers verify signatures; `--require-signature` / `require_signature = true`
+  refuses unsigned or tampered tasks before they run
+- the MCP `send_task` tool signs when the key is set
+- note: a shared key proves "an authorized holder sent this", not which agent;
+  per-agent asymmetric identity is planned
+
 ## 0.2.2
 
 - optional TOML config (`./agent-bus.toml` or

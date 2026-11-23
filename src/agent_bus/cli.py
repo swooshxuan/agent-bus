@@ -15,6 +15,7 @@ from . import __version__
 from .config import load_config
 from .remote import RemoteStore
 from .sandbox import Sandbox, SandboxError
+from .signing import sign_task, verify_task
 from .store import BusError, Store
 
 # A task body may start with "@workdir: /path/to/project" to choose the
@@ -108,7 +109,13 @@ def _run_shell(body, extra, workdir, timeout, wrap=None):
 
 
 def cmd_send(store, args):
-    task = store.send(args.target, args.title, _body(args), args.sender)
+    body = _body(args)
+    sender = args.sender or os.environ.get("USER", "unknown")
+    sig = args.sig
+    key = getattr(args, "signing_key", None)
+    if key and not sig:
+        sig = sign_task(key, args.target, args.title, body, sender)
+    task = store.send(args.target, args.title, body, sender, sig=sig)
     print(json.dumps(task, ensure_ascii=False) if args.json else task["id"])
     return 0
 
@@ -202,6 +209,21 @@ def _detach_worker(args):
     return 0
 
 
+def _check_signature(args, task):
+    key = getattr(args, "signing_key", None)
+    if key:
+        return verify_task(key, task)
+    if getattr(args, "require_signature", False):
+        return False, "no signing key configured"
+    if task.get("sig"):
+        _log("WARN: task %s has a signature but no key is configured"
+             % task.get("id"))
+    else:
+        _log("WARN: task %s is unsigned (set signing_key to enable signing)"
+             % task.get("id"))
+    return True, "unverified"
+
+
 def cmd_work(store, args):
     if args.detach:
         return _detach_worker(args)
@@ -241,23 +263,28 @@ def cmd_work(store, args):
             sandbox = None
             status, output = "fail", ""
             try:
-                body = store.get_task(task["id"]).get("body", "")
-                task_dir, body = _split_workdir(body)
-                task_dir = os.path.expanduser(task_dir) if task_dir else workdir
-                if not os.path.isdir(task_dir):
-                    output = "workdir not found: %s" % task_dir
+                detail = store.get_task(task["id"])
+                sig_ok, sig_reason = _check_signature(args, detail)
+                if not sig_ok:
+                    output = "refused: %s" % sig_reason
                 else:
-                    sandbox = Sandbox(args.sandbox, task_dir, task["id"],
-                                      log=_log, keep=args.keep_worktrees,
-                                      image=args.docker_image,
-                                      network=args.docker_network)
-                    _log("sandbox: %s (dir: %s)" % (sandbox.mode, sandbox.run_dir))
-                    wrap = sandbox.wrap if sandbox.mode == "docker" else None
-                    proc = runner(body, extra, sandbox.run_dir, args.timeout, wrap)
-                    status = "ok" if proc.returncode == 0 else "fail"
-                    output = proc.stdout or ""
-                    if proc.stderr:
-                        output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
+                    body = detail.get("body", "")
+                    task_dir, body = _split_workdir(body)
+                    task_dir = os.path.expanduser(task_dir) if task_dir else workdir
+                    if not os.path.isdir(task_dir):
+                        output = "workdir not found: %s" % task_dir
+                    else:
+                        sandbox = Sandbox(args.sandbox, task_dir, task["id"],
+                                          log=_log, keep=args.keep_worktrees,
+                                          image=args.docker_image,
+                                          network=args.docker_network)
+                        _log("sandbox: %s (dir: %s)" % (sandbox.mode, sandbox.run_dir))
+                        wrap = sandbox.wrap if sandbox.mode == "docker" else None
+                        proc = runner(body, extra, sandbox.run_dir, args.timeout, wrap)
+                        status = "ok" if proc.returncode == 0 else "fail"
+                        output = proc.stdout or ""
+                        if proc.stderr:
+                            output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
             except SandboxError as exc:
                 output = "sandbox error: %s" % exc
             except subprocess.TimeoutExpired:
@@ -465,6 +492,7 @@ def build_parser():
     p.add_argument("title")
     p.add_argument("--from", dest="sender", default=None)
     p.add_argument("--body", default=None, help="任务内容（缺省从 stdin 读）")
+    p.add_argument("--sig", default=None, help="任务签名（内部使用）")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_send)
 
@@ -518,6 +546,8 @@ def build_parser():
                    help="claude: claude -p <body>；shell: 把 body 当 shell 命令")
     p.add_argument("--sandbox", choices=["auto", "none", "worktree", "docker"],
                    default=None, help="任务沙箱（默认 auto）")
+    p.add_argument("--require-signature", action="store_true",
+                   help="拒绝未签名或签名无效的任务")
     p.add_argument("--keep-worktrees", action="store_true",
                    help="任务完成后保留 worktree")
     p.add_argument("--docker-image", default=None,
@@ -579,12 +609,20 @@ def _apply_config(args, cfg):
     if args.remote_key:
         args.remote_key = os.path.expanduser(args.remote_key)
 
+    args.signing_key = (os.environ.get("AGENT_BUS_SIGNING_KEY")
+                        or cfg.get("signing_key"))
+    args.require_signature = bool(getattr(args, "require_signature", False)
+                                  or cfg.get("require_signature", False))
+
     cmd = args.cmd
     if cmd in ("work", "status", "stop", "doctor") and not getattr(args, "me", None):
         args.me = cfg.get("me")
     if cmd == "work":
         if not args.me:
             raise BusError("--me is required (or set 'me' in the config)")
+        if args.require_signature and not args.signing_key:
+            raise BusError("require_signature needs a signing key "
+                           "(AGENT_BUS_SIGNING_KEY or 'signing_key' in the config)")
         args.dir = os.path.expanduser(args.dir or cfg.get("dir") or ".")
         args.poll = args.poll if args.poll is not None else int(cfg.get("poll", 20))
         args.timeout = args.timeout if args.timeout is not None else int(cfg.get("timeout", 3600))

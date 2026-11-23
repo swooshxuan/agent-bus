@@ -83,6 +83,20 @@ sandbox = "auto"
 > Windows 路径注意：TOML 基本字符串会把 `\` 当作转义符。请写成
 > `dir = 'C:\Users\you\agent-work'`（单引号，字面量）或 `dir = "C:/Users/you/agent-work"`。
 
+### 1.5 任务签名（可选，推荐）
+
+所有发送方与 worker 配置同一个密钥：
+
+```toml
+signing_key = "openssl rand -hex 32 的结果"
+require_signature = true
+```
+
+- `send` 自动签名；worker 校验后才执行
+- 未签名或签名无效的任务会直接失败（结果里写明 `refused: ...`）
+- 也可以只用环境变量 `AGENT_BUS_SIGNING_KEY`
+- 共享密钥只证明「授权方发出」，不区分具体机器
+
 ## 2. 日常操作
 
 ### 2.1 发任务

@@ -60,7 +60,7 @@ class Store:
             raise BusError("invalid target name: %r" % (target,))
 
     # -- operations -----------------------------------------------------
-    def send(self, target, title, body="", sender=None):
+    def send(self, target, title, body="", sender=None, sig=None):
         """Create a pending task and return it."""
         self._check_target(target)
         os.makedirs(os.path.join(self.tasks_dir, target), exist_ok=True)
@@ -74,6 +74,8 @@ class Store:
             "status": "pending",
             "created_at": self._now(),
         }
+        if sig:
+            task["sig"] = sig
         self._write(self._task_path(target, tid), task)
         return task
 

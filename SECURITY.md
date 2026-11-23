@@ -26,6 +26,9 @@ agent-bus is a task mailbox. Workers execute whatever task lands in their queue.
   worktree) so tasks cannot modify your main checkout.
 - Treat the bus as a trust boundary: only let trusted agents and humans send
   tasks. Anyone who can reach the bus can queue code for every worker.
+- Enable task signing (`signing_key` everywhere, `require_signature = true` on
+  workers) so tasks lacking a valid HMAC are refused. A shared key proves an
+  authorized holder sent the task; it does not identify which agent.
 - Keep the bus host patched; put fail2ban in front of SSH and prefer a
   VPN/tunnel over exposing SSH to the internet.
 - Bound result size with `AGENT_BUS_MAX_RESULT` (default 100000 characters).

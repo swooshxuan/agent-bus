@@ -149,6 +149,20 @@ agent-bus stop --me lab
 日志默认写到 `~/.agent-bus/worker/<me>.log`（`--log` 可改）。
 worker 启动时第一行会打印 `mode: REMOTE ...` 或 `mode: LOCAL ...` —— 本地模式会额外警告「任务不会发往远端」。
 
+## 任务签名（v0.3）
+
+给所有发送方和 worker 配置同一个签名密钥（生成：`openssl rand -hex 32`）：
+
+```toml
+signing_key = "..."
+require_signature = true     # worker 侧：拒绝未签名/无效任务
+```
+
+- `send` 自动对 `target/title/body/sender` 签名
+- worker 校验签名；开启 `require_signature` 后，未签名或被篡改的任务**不会执行**，直接失败并给出原因
+- 也可用环境变量 `AGENT_BUS_SIGNING_KEY`（MCP 的 `send_task` 同样会自动签名）
+- 共享密钥能证明「持有密钥的授权方发出」，但不能区分具体哪台机器（每机非对称身份在后续版本）
+
 ## 沙箱（v0.2）
 
 `work` 默认 `--sandbox auto`：**git 仓库自动使用 worktree**（每个任务一个独立副本，结果里带 diff 统计），非 git 目录退回 `none` 并打印警告。

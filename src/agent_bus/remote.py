@@ -47,10 +47,12 @@ class RemoteStore:
             raise BusError(proc.stderr.strip() or "remote agent-bus failed")
         return proc.stdout
 
-    def send(self, target, title, body="", sender=None):
+    def send(self, target, title, body="", sender=None, sig=None):
         args = ["send", target, title, "--json"]
         if sender:
             args += ["--from", sender]
+        if sig:
+            args += ["--sig", sig]
         return json.loads(self._run(args, stdin=body))
 
     def list_tasks(self, target, include_all=False):
