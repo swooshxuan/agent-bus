@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- fix: force UTF-8 stdio so Chinese help and messages do not crash on
+  cp1252/GBK consoles (found by the new Windows CI job)
+
 ## 0.1.4
 
 - worker retries polling with exponential backoff (5s to 120s) instead of

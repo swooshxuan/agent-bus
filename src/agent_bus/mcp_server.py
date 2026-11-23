@@ -141,7 +141,17 @@ def _handle(store, req):
     raise BusError("method not found: %s" % method)
 
 
+def _force_utf8_stdio():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def main(argv=None):
+    _force_utf8_stdio()
     remote = os.environ.get("AGENT_BUS_REMOTE")
     store = RemoteStore(remote) if remote else Store()
     for line in sys.stdin:

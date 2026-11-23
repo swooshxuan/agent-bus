@@ -492,7 +492,18 @@ def build_parser():
     return parser
 
 
+def _force_utf8_stdio():
+    """Avoid UnicodeEncodeError on legacy Windows code pages (cp1252/GBK)."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def main(argv=None):
+    _force_utf8_stdio()
     raw = list(sys.argv[1:]) if argv is None else list(argv)
     args = build_parser().parse_args(raw)
     if args.remote:
