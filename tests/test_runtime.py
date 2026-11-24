@@ -44,6 +44,24 @@ class RuntimeTest(unittest.TestCase):
             self.assertIn("abcd…7890", out)
             self.assertNotIn("abcdef1234567890", out)
 
+    def test_remote_ssh_options(self):
+        from agent_bus.remote import RemoteStore
+        store = RemoteStore("user@host", key="/tmp/k", ssh_bin="ssh-custom",
+                            ssh_port="2222", ssh_proxy="nc proxy 22",
+                            ssh_known_hosts="/tmp/known")
+        argv = store._ssh()
+        self.assertEqual(argv[0], "ssh-custom")
+        self.assertIn("2222", argv)
+        self.assertIn("-i", argv)
+        self.assertTrue(any(a.startswith("ProxyCommand=") for a in argv))
+        self.assertTrue(any(a.startswith("UserKnownHostsFile=") for a in argv))
+
+    def test_shell_runner_roundtrip(self):
+        from agent_bus.cli import _run_shell
+        proc = _run_shell("echo hello-shell", [], os.getcwd(), 30)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("hello-shell", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

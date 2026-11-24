@@ -137,6 +137,11 @@ def _run_shell(body, extra, workdir, timeout, wrap=None):
         return subprocess.run(argv, cwd=workdir, capture_output=True,
                               text=True, encoding="utf-8", errors="replace",
                               timeout=timeout)
+    if os.name == "nt":
+        # cmd.exe writes in the system codepage (e.g. GBK on Chinese Windows),
+        # so let Python use the locale instead of forcing UTF-8.
+        return subprocess.run(body, shell=True, cwd=workdir, capture_output=True,
+                              text=True, errors="replace", timeout=timeout)
     return subprocess.run(body, shell=True, cwd=workdir, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
                           timeout=timeout)
@@ -638,6 +643,14 @@ def build_parser():
                         help="远程信箱主机 user@host（默认 $AGENT_BUS_REMOTE 或配置）")
     parser.add_argument("--remote-key", default=None,
                         help="远程 SSH 私钥（默认 $AGENT_BUS_SSH_KEY 或配置）")
+    parser.add_argument("--ssh-bin", default=None,
+                        help="SSH 客户端路径（默认 $AGENT_BUS_SSH_BIN 或配置）")
+    parser.add_argument("--ssh-port", default=None,
+                        help="远程 SSH 端口（默认 $AGENT_BUS_SSH_PORT 或配置）")
+    parser.add_argument("--ssh-proxy", default=None,
+                        help="SSH ProxyCommand（默认 $AGENT_BUS_SSH_PROXY_COMMAND 或配置）")
+    parser.add_argument("--ssh-known-hosts", default=None,
+                        help="known_hosts 路径（默认 $AGENT_BUS_SSH_KNOWN_HOSTS 或配置）")
     sub = parser.add_subparsers(dest="cmd")
     sub.required = True
 
@@ -769,6 +782,15 @@ def _apply_config(args, cfg):
     args.remote = args.remote or os.environ.get("AGENT_BUS_REMOTE") or cfg.get("remote")
     args.remote_key = (args.remote_key or os.environ.get("AGENT_BUS_SSH_KEY")
                        or cfg.get("remote_key"))
+    args.ssh_bin = (args.ssh_bin or os.environ.get("AGENT_BUS_SSH_BIN")
+                    or cfg.get("ssh_bin"))
+    args.ssh_port = (args.ssh_port or os.environ.get("AGENT_BUS_SSH_PORT")
+                     or cfg.get("ssh_port"))
+    args.ssh_proxy = (args.ssh_proxy or os.environ.get("AGENT_BUS_SSH_PROXY_COMMAND")
+                      or cfg.get("ssh_proxy_command"))
+    args.ssh_known_hosts = (args.ssh_known_hosts
+                            or os.environ.get("AGENT_BUS_SSH_KNOWN_HOSTS")
+                            or cfg.get("ssh_known_hosts"))
     args.base = args.base or os.environ.get("AGENT_BUS_DIR") or cfg.get("base")
     if args.base:
         args.base = os.path.expanduser(args.base)
@@ -817,7 +839,10 @@ def main(argv=None):
         sys.stderr.write("agent-bus: %s\n" % exc)
         return 1
     if args.remote:
-        store = RemoteStore(args.remote, base=args.base, key=args.remote_key)
+        store = RemoteStore(args.remote, base=args.base, key=args.remote_key,
+                            ssh_bin=args.ssh_bin, ssh_port=args.ssh_port,
+                            ssh_proxy=args.ssh_proxy,
+                            ssh_known_hosts=args.ssh_known_hosts)
         mode = "REMOTE " + args.remote
         if args.remote_key:
             mode += " (key: %s)" % args.remote_key

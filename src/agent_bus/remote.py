@@ -16,22 +16,30 @@ from .store import BusError
 class RemoteStore:
     """Same interface as :class:`agent_bus.store.Store`, backed by SSH."""
 
-    def __init__(self, host, base=None, key=None):
+    def __init__(self, host, base=None, key=None, ssh_bin=None, ssh_port=None,
+                 ssh_proxy=None, ssh_known_hosts=None):
         self.host = host
         self.base = base
         self.key = key or os.environ.get("AGENT_BUS_SSH_KEY")
         self.cmd = os.environ.get("AGENT_BUS_REMOTE_CMD", "agent-bus")
-        self.ssh_bin = os.environ.get("AGENT_BUS_SSH_BIN", "ssh")
+        self.ssh_bin = ssh_bin or os.environ.get("AGENT_BUS_SSH_BIN", "ssh")
+        self.ssh_port = ssh_port or os.environ.get("AGENT_BUS_SSH_PORT")
+        self.ssh_proxy = ssh_proxy or os.environ.get("AGENT_BUS_SSH_PROXY_COMMAND")
+        self.ssh_known_hosts = (ssh_known_hosts
+                                or os.environ.get("AGENT_BUS_SSH_KNOWN_HOSTS"))
 
     def _ssh(self):
         argv = [self.ssh_bin, "-o", "BatchMode=yes",
                 "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=accept-new"]
-        port = os.environ.get("AGENT_BUS_SSH_PORT")
-        if port:
-            argv += ["-p", port]
+        if self.ssh_port:
+            argv += ["-p", str(self.ssh_port)]
         if self.key:
             argv += ["-i", self.key]
+        if self.ssh_proxy:
+            argv += ["-o", "ProxyCommand=" + str(self.ssh_proxy)]
+        if self.ssh_known_hosts:
+            argv += ["-o", "UserKnownHostsFile=" + str(self.ssh_known_hosts)]
         argv.append(self.host)
         return argv
 

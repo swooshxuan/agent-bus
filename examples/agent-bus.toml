@@ -5,6 +5,10 @@
 # base = "/srv/agent-bus"          # local mode
 remote = "ubuntu@bus-host"         # remote mode
 remote_key = "~/.ssh/agentbus"
+# ssh_bin = "C:/Program Files/Git/usr/bin/ssh.exe"
+# ssh_port = 2222
+# ssh_proxy_command = "ssh -W %h:%p jump@bastion"
+# ssh_known_hosts = "~/.ssh/known_hosts"
 
 # --- worker defaults (used by `agent-bus work`) ---
 me = "lab"

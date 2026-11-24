@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2
+
+- configurable SSH client: `ssh_bin`, `ssh_port`, `ssh_proxy_command`,
+  `ssh_known_hosts` (flags, env vars and config file)
+- Windows shell runner decodes output with the system codepage instead of UTF-8
+- docs: `docs/windows.md` (native deployment, Task Scheduler, shell runner) and
+  `docs/remote-deployment.md` (Tailscale/IPv6/frp, troubleshooting)
+- tests for SSH option assembly and the shell runner
+
 ## 0.4.1
 
 - `agent-bus config [show]` prints the effective config (signing key masked)
