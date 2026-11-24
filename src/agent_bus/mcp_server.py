@@ -12,6 +12,7 @@ import os
 import sys
 
 from . import __version__
+from .config import load_config
 from .remote import RemoteStore
 from .signing import sign_task
 from .store import BusError, Store
@@ -158,6 +159,26 @@ def _force_utf8_stdio():
 
 def main(argv=None):
     _force_utf8_stdio()
+    # MCP hosts often start us without a shell environment: load the config
+    # file so ssh options and the signing key apply here too.
+    try:
+        cfg, _ = load_config(os.environ.get("AGENT_BUS_CONFIG"))
+    except BusError:
+        cfg = {}
+    for env_name, cfg_key, is_path in (
+        ("AGENT_BUS_REMOTE", "remote", False),
+        ("AGENT_BUS_DIR", "base", True),
+        ("AGENT_BUS_SSH_KEY", "remote_key", True),
+        ("AGENT_BUS_SSH_BIN", "ssh_bin", True),
+        ("AGENT_BUS_SSH_PORT", "ssh_port", False),
+        ("AGENT_BUS_SSH_PROXY_COMMAND", "ssh_proxy_command", False),
+        ("AGENT_BUS_SSH_KNOWN_HOSTS", "ssh_known_hosts", True),
+        ("AGENT_BUS_SIGNING_KEY", "signing_key", False),
+    ):
+        value = cfg.get(cfg_key)
+        if value and not os.environ.get(env_name):
+            os.environ[env_name] = (os.path.expanduser(str(value))
+                                    if is_path else str(value))
     remote = os.environ.get("AGENT_BUS_REMOTE")
     store = RemoteStore(remote) if remote else Store()
     for line in sys.stdin:

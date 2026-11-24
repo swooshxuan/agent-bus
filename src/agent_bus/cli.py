@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import locale
 import os
 import platform
 import re
@@ -102,6 +103,15 @@ def _heartbeat_loop(me, stop, interval=15, extra=None):
         except OSError:
             pass
         stop.wait(interval)
+
+
+def _read_text(path):
+    with open(path, "rb") as fh:
+        data = fh.read()
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode(locale.getpreferredencoding(False), errors="replace")
 
 
 def _pid_alive(pid):
@@ -409,12 +419,28 @@ def cmd_doctor(store, args):
     check("INFO", "mode: %s" % getattr(args, "_mode", "unknown"))
 
     if getattr(args, "_remote", False):
-        ssh = shutil.which("ssh")
-        if ssh:
-            check("PASS", "ssh client: %s" % ssh)
+        configured = getattr(args, "ssh_bin", None)
+        if configured:
+            found = (configured if os.path.isabs(str(configured))
+                     and os.path.exists(str(configured))
+                     else shutil.which(str(configured)))
+        else:
+            found = shutil.which("ssh")
+        if found:
+            check("PASS", "ssh client: %s" % found)
         else:
             failures += 1
-            check("FAIL", "ssh client not found", "install OpenSSH client")
+            check("FAIL", "ssh client not found: %s" % (configured or "ssh"),
+                  "install OpenSSH client or set ssh_bin")
+        ssh_extra = []
+        if getattr(args, "ssh_port", None):
+            ssh_extra.append("port=%s" % args.ssh_port)
+        if getattr(args, "ssh_proxy", None):
+            ssh_extra.append("proxy=%s" % args.ssh_proxy)
+        if getattr(args, "ssh_known_hosts", None):
+            ssh_extra.append("known_hosts=%s" % args.ssh_known_hosts)
+        if ssh_extra:
+            check("INFO", "ssh options: " + ", ".join(ssh_extra))
         key = args.remote_key or os.environ.get("AGENT_BUS_SSH_KEY")
         if key:
             key_path = os.path.expanduser(key)
@@ -507,11 +533,10 @@ def cmd_status(store, args):
         if log:
             print("log:", log)
             if os.path.exists(log):
-                with open(log, encoding="utf-8", errors="replace") as fh:
-                    lines = fh.readlines()[-5:]
+                lines = _read_text(log).splitlines()[-5:]
                 if lines:
                     print("--- last log lines ---")
-                    print("".join(lines).rstrip())
+                    print("\n".join(lines).rstrip())
         try:
             print("queue '%s': %d pending" % (
                 args.me, len(store.list_tasks(args.me))))
@@ -526,13 +551,16 @@ def cmd_status(store, args):
 
 def cmd_stop(store, args):
     path = _pid_path(args.me)
-    if not os.path.exists(path):
-        print("worker '%s': not running" % args.me)
-        return 1
-    with open(path, encoding="utf-8") as fh:
-        state = json.load(fh)
+    state = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
     pid = state.get("pid")
-    if _pid_alive(pid):
+    if not pid:
+        heartbeat = _read_heartbeat(args.me)
+        if heartbeat:
+            pid = heartbeat.get("pid")
+    if pid and _pid_alive(pid):
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                            capture_output=True)
@@ -540,11 +568,12 @@ def cmd_stop(store, args):
             os.kill(int(pid), signal.SIGTERM)
         print("stopped worker '%s' (pid %s)" % (args.me, pid))
     else:
-        print("worker '%s' was not running (stale pid file)" % args.me)
-    try:
-        os.unlink(path)
-    except OSError:
-        pass
+        print("worker '%s' was not running" % args.me)
+    for extra in (path, _heartbeat_path(args.me)):
+        try:
+            os.unlink(extra)
+        except OSError:
+            pass
     return 0
 
 
@@ -791,6 +820,10 @@ def _apply_config(args, cfg):
     args.ssh_known_hosts = (args.ssh_known_hosts
                             or os.environ.get("AGENT_BUS_SSH_KNOWN_HOSTS")
                             or cfg.get("ssh_known_hosts"))
+    for name in ("ssh_bin", "ssh_known_hosts"):
+        value = getattr(args, name, None)
+        if value:
+            setattr(args, name, os.path.expanduser(str(value)))
     args.base = args.base or os.environ.get("AGENT_BUS_DIR") or cfg.get("base")
     if args.base:
         args.base = os.path.expanduser(args.base)

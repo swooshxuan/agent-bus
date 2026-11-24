@@ -62,6 +62,31 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("hello-shell", proc.stdout)
 
+    def test_stop_via_heartbeat(self):
+        import subprocess
+        import sys
+        from agent_bus.cli import _heartbeat_path, _write_heartbeat
+        me = "hb-stop-%d" % os.getpid()
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            _write_heartbeat(me, {"pid": proc.pid})
+            self.assertEqual(main(["stop", "--me", me]), 0)
+            proc.wait(timeout=10)
+            self.assertIsNotNone(proc.returncode)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            hb = _heartbeat_path(me)
+            if os.path.exists(hb):
+                os.unlink(hb)
+
+    def test_config_expands_ssh_paths(self):
+        from agent_bus.cli import _apply_config, build_parser
+        args = build_parser().parse_args(["doctor"])
+        _apply_config(args, {"ssh_bin": "~/bin/sshx", "ssh_known_hosts": "~/kh"})
+        self.assertFalse(str(args.ssh_bin).startswith("~"))
+        self.assertFalse(str(args.ssh_known_hosts).startswith("~"))
+
 
 if __name__ == "__main__":
     unittest.main()

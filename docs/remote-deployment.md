@@ -16,6 +16,49 @@ worker 不需要公网 IP，也不需要与其它 worker 在同一网段。
 快速检测 IPv6：`curl -6 ifconfig.co`。若有公网地址且双向可达，直接把
 `remote` 写成 `用户名@[2408:...]` 即可，无需组网。
 
+### 1.1 只放行 443 端口
+
+服务器 sshd 增加一个 443 监听：
+
+```bash
+sudo tee /etc/ssh/sshd_config.d/443.conf >/dev/null <<'EOF'
+Port 443
+EOF
+sudo sshd -t && sudo systemctl restart ssh
+# 云厂商安全组放行 443/TCP
+```
+
+worker 配置：
+
+```toml
+remote = "user@bus-host"
+ssh_port = 443
+```
+
+### 1.2 用现有 frp 暴露信箱主机的 SSH
+
+信箱主机在 NAT 后时，用 frpc 把本机 22 映射到公网中继：
+
+```toml
+# frpc.toml on the bus host
+serverAddr = "relay.example.com"
+serverPort = 7000
+auth.token = "..."
+[[proxies]]
+name = "bus-ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = 2222
+```
+
+客户端配置：
+
+```toml
+remote = "user@relay.example.com"
+ssh_port = 2222
+```
+
 ## 2. Tailscale 示例（无公网、零成本）
 
 1. 两台机器安装 Tailscale，登录同一账号，记下各自的 `100.x.x.x` 地址
@@ -90,3 +133,5 @@ ssh_bin = "C:/Program Files/Git/usr/bin/ssh.exe"
 - 开启 `require_signature` 前确保所有发送方都配置了相同的 `signing_key`
 - 不可信来源的任务使用 `--sandbox docker`（容器仅挂载作业目录）
 - 不要把信箱主机的 SSH 直接暴露给不可信网络；优先 VPN/组网或 fail2ban
+- 同一台机器不要启动两个同名 `me` 的 worker（心跳与 pid 文件会互相覆盖）；多实例请用不同 `me`，或单进程 `workers = N`
+- 签名密钥通过安全渠道分发（scp、密码管理器），不要发在聊天或公开频道

@@ -67,23 +67,25 @@ agent-bus stop --me pc1
 
 ## 6. 开机自启（任务计划程序）
 
-创建 `E:\frp\agent.bat`：
+创建 `%USERPROFILE%\agent-bus\agent.bat`。**前台运行，不要加 `--detach`** ——
+这样任务计划程序才能监督进程并在崩溃时重启：
 
 ```bat
 @echo off
-agent-bus work --detach
+agent-bus work >> "%USERPROFILE%\.agent-bus\worker\pc1.log" 2>&1
 ```
 
-注册任务（登录后自动启动、失败自动重启）：
+注册任务（登录后启动）：
 
 ```bat
-schtasks /create /tn "agent-bus" /tr "E:\frp\agent.bat" /sc onlogon /rl highest /f
+schtasks /create /tn "agent-bus" /tr "\"%USERPROFILE%\agent-bus\agent.bat\"" /sc onlogon /rl highest /f
 ```
 
 - 用 `onlogon` 而不是 `onstart`：worker 需要用户环境（PATH、凭证、配置）
-- `agent.bat` 内部用 `--detach`，任务本身立即退出，worker 在后台持续运行
-- 任务计划程序 GUI 里可以设置「失败后重启」（触发器与操作之外，另在「设置」页配置）
-- 更新 agent-bus 后需要 `agent-bus stop --me pc1` 再启动，后台进程才会用新版本
+- 在任务计划程序 GUI 的「设置」页勾选「如果任务失败，每隔 N 分钟重新启动」，并取消「超过运行时间则停止」
+- 与 `--detach` 的区别：`--detach` 适合手工临时后台运行；**开机自启交给任务计划程序监督**
+- 更新 agent-bus 后：`schtasks /end /tn "agent-bus"` 再 `schtasks /run /tn "agent-bus"`
+- 日志会持续增长，建议定期清理或按大小轮转（Windows 没有自动轮转）
 
 ## 7. SSH 客户端选择
 
@@ -107,6 +109,7 @@ ssh_bin = "C:/Program Files/Git/usr/bin/ssh.exe"
 | 路径 | 反斜杠、盘符 | 任务里写绝对路径最稳 |
 | 编码 | 输出按系统代码页（中文为 GBK）解码 | 输出 UTF-8 内容时建议用 `python -c` |
 | 跨平台任务 | — | 写成 `python -c "..."` 两边都能跑 |
+| PowerShell | shell runner 固定 `cmd.exe` | 需要 PowerShell 时写成 `powershell -NoProfile -Command "..."` |
 
 示例（跨平台）：
 

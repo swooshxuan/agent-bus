@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.3
+
+- doctor resolves the configured `ssh_bin` and reports port/proxy/known_hosts;
+  `~` is expanded for ssh_bin and ssh_known_hosts
+- the MCP server loads `agent-bus.toml`, so SSH options and the signing key apply
+  when launched by an MCP host
+- `stop` falls back to the heartbeat pid, so it also works for supervised workers
+- `status` decodes log tails with a UTF-8 -> locale fallback
+- docs: task-scheduler guidance fixed (foreground + restart-on-failure),
+  443/frp/IPv6 examples, PowerShell note, same-`me` warning, key distribution
+
 ## 0.4.2
 
 - configurable SSH client: `ssh_bin`, `ssh_port`, `ssh_proxy_command`,
