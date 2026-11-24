@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- `agent-bus config [show]` prints the effective config (signing key masked)
+- workers write a heartbeat; `status` and `doctor` show the last heartbeat and
+  queue depth
+
 ## 0.4.0
 
 - `work --workers N`: N concurrent task loops; atomic claim keeps tasks unique

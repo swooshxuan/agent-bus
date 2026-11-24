@@ -106,6 +106,7 @@ sandbox = "auto"
 
 优先级：**命令行 > 环境变量 > 配置文件 > 内置默认**。完整示例见
 `examples/agent-bus.toml`；Python 3.8–3.10 会自动安装 `tomli`。
+用 `agent-bus config show` 查看最终生效的配置（签名密钥会打码）。
 
 ## 任务模板（推荐）
 
@@ -142,7 +143,7 @@ agent-bus --remote ubuntu@bus-host --remote-key ~/.ssh/agentbus \
 ```bash
 agent-bus --remote ubuntu@bus-host --remote-key ~/.ssh/agentbus \
   work --me lab --detach
-agent-bus status --me lab     # RUNNING/STOPPED + 最近日志
+agent-bus status --me lab     # RUNNING/STOPPED + 心跳 + 队列深度 + 最近日志
 agent-bus stop --me lab
 ```
 

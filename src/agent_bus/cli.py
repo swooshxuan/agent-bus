@@ -71,6 +71,39 @@ def _default_log(me):
     return os.path.join(_state_dir(), me + ".log")
 
 
+def _heartbeat_path(me):
+    return os.path.join(_state_dir(), me + ".heartbeat")
+
+
+def _write_heartbeat(me, extra=None):
+    data = {"me": me, "pid": os.getpid(), "ts": time.time(),
+            "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    if extra:
+        data.update(extra)
+    path = _heartbeat_path(me)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _read_heartbeat(me):
+    try:
+        with open(_heartbeat_path(me), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _heartbeat_loop(me, stop, interval=15, extra=None):
+    while not stop.is_set():
+        try:
+            _write_heartbeat(me, extra)
+        except OSError:
+            pass
+        stop.wait(interval)
+
+
 def _pid_alive(pid):
     if not pid:
         return False
@@ -327,20 +360,29 @@ def cmd_work(store, args):
         _log("NOTE: 本地模式 —— 任务只读写本地信箱，不会发往远端（用 --remote 或 AGENT_BUS_REMOTE）")
     _log("worker up: me=%s dir=%s poll=%ss runner=%s workers=%d" % (
         args.me, workdir, args.poll, args.runner, workers))
-    if workers == 1:
-        _worker_loop(store, args, runner, workdir, extra)
-        return 0
-    threads = [threading.Thread(target=_worker_loop,
-                                args=(store, args, runner, workdir, extra),
-                                daemon=True) for _ in range(workers)]
-    for thread in threads:
-        thread.start()
+    stop = threading.Event()
+    threading.Thread(
+        target=_heartbeat_loop, args=(args.me, stop),
+        kwargs={"extra": {"mode": getattr(args, "_mode", ""),
+                          "workers": workers}},
+        daemon=True).start()
     try:
+        if workers == 1:
+            _worker_loop(store, args, runner, workdir, extra)
+            return 0
+        threads = [threading.Thread(target=_worker_loop,
+                                    args=(store, args, runner, workdir, extra),
+                                    daemon=True) for _ in range(workers)]
         for thread in threads:
-            thread.join()
-    except KeyboardInterrupt:
-        _log("interrupted; exiting")
-    return 0
+            thread.start()
+        try:
+            for thread in threads:
+                thread.join()
+        except KeyboardInterrupt:
+            _log("interrupted; exiting")
+        return 0
+    finally:
+        stop.set()
 
 
 def cmd_doctor(store, args):
@@ -413,6 +455,14 @@ def cmd_doctor(store, args):
     check("PASS" if docker else "WARN", "docker: %s" % (
         docker or "not found (docker sandbox disabled)"))
 
+    if args.me:
+        hb = _read_heartbeat(args.me)
+        if hb and time.time() - hb.get("ts", 0) <= 60:
+            check("PASS", "worker heartbeat: %ss ago (workers=%s)" % (
+                int(time.time() - hb.get("ts", 0)), hb.get("workers", "?")))
+        else:
+            check("WARN", "no fresh worker heartbeat for '%s'" % args.me)
+
     if args.dir:
         target = os.path.abspath(os.path.expanduser(args.dir))
         if os.path.isdir(target):
@@ -429,28 +479,44 @@ def cmd_doctor(store, args):
 
 
 def cmd_status(store, args):
+    state = {}
     path = _pid_path(args.me)
-    if not os.path.exists(path):
-        print("worker '%s': not running (no pid file)" % args.me)
-        return 1
-    with open(path, encoding="utf-8") as fh:
-        state = json.load(fh)
-    alive = _pid_alive(state.get("pid"))
-    print("worker '%s': %s (pid %s, started %s)" % (
-        args.me, "RUNNING" if alive else "STOPPED",
-        state.get("pid"), state.get("started_at")))
-    if state.get("mode"):
-        print("mode:", state["mode"])
-    log = state.get("log")
-    if log:
-        print("log:", log)
-        if os.path.exists(log):
-            with open(log, encoding="utf-8", errors="replace") as fh:
-                lines = fh.readlines()[-5:]
-            if lines:
-                print("--- last log lines ---")
-                print("".join(lines).rstrip())
-    return 0 if alive else 1
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+    alive = _pid_alive(state.get("pid")) if state else False
+    hb = _read_heartbeat(args.me)
+    age = int(time.time() - hb.get("ts", 0)) if hb else None
+    fresh = age is not None and age <= 60
+    if alive or fresh:
+        print("worker '%s': RUNNING%s" % (
+            args.me, "" if alive else " (heartbeat only)"))
+        if state:
+            print("pid:", state.get("pid"), "| started:", state.get("started_at"))
+        if hb:
+            print("heartbeat: %s (%ss ago, workers=%s)" % (
+                hb.get("at"), age, hb.get("workers", "?")))
+        if state.get("mode"):
+            print("mode:", state["mode"])
+        log = state.get("log")
+        if log:
+            print("log:", log)
+            if os.path.exists(log):
+                with open(log, encoding="utf-8", errors="replace") as fh:
+                    lines = fh.readlines()[-5:]
+                if lines:
+                    print("--- last log lines ---")
+                    print("".join(lines).rstrip())
+        try:
+            print("queue '%s': %d pending" % (
+                args.me, len(store.list_tasks(args.me))))
+        except BusError as exc:
+            print("queue: error (%s)" % exc)
+        return 0
+    print("worker '%s': not running" % args.me)
+    if hb:
+        print("heartbeat: stale (%ss ago)" % age)
+    return 1
 
 
 def cmd_stop(store, args):
@@ -542,6 +608,20 @@ def cmd_reap(store, args):
         print(json.dumps({"reaped": ids}))
     else:
         print("reaped %d task(s)%s" % (len(ids), (": " + ", ".join(ids)) if ids else ""))
+    return 0
+
+
+def cmd_config_show(store, args):
+    cfg = getattr(args, "_cfg", {}) or {}
+    shown = dict(cfg)
+    if shown.get("signing_key"):
+        key = str(shown["signing_key"])
+        shown["signing_key"] = (key[:4] + "…" + key[-4:]) if len(key) > 8 else "<set>"
+    print("config file:", getattr(args, "_config", None) or "(none)")
+    print("mode:       ", getattr(args, "_mode", "?"))
+    print("settings:   ", json.dumps(shown, ensure_ascii=False, sort_keys=True))
+    print("signing_key:", "set" if getattr(args, "signing_key", None) else "not set")
+    print("require_signature:", bool(getattr(args, "require_signature", False)))
     return 0
 
 
@@ -655,6 +735,10 @@ def build_parser():
     p.add_argument("--me", default=None)
     p.set_defaults(func=cmd_stop)
 
+    p = sub.add_parser("config", help="显示最终生效的配置（密钥打码）")
+    p.add_argument("action", nargs="?", default="show", choices=["show"])
+    p.set_defaults(func=cmd_config_show)
+
     p = sub.add_parser("watch", help="实时查看任务状态和结果")
     p.add_argument("--me", default=None, help="只观察某个目标（默认全部）")
     p.add_argument("--interval", type=int, default=3, help="轮询间隔（秒）")
@@ -744,6 +828,7 @@ def main(argv=None):
     args._mode = mode
     args._remote = bool(args.remote)
     args._config = cfg_path
+    args._cfg = cfg
     try:
         return args.func(store, args) or 0
     except BusError as exc:
