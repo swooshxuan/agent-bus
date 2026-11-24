@@ -11,6 +11,7 @@ me = "lab"
 dir = "~/agent-work"
 poll = 20
 timeout = 3600
+workers = 1
 runner = "claude"                  # claude | shell
 sandbox = "auto"                   # auto | none | worktree | docker
 # docker_image = "agent-bus-worker:latest"

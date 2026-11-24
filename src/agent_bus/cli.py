@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 from . import __version__
@@ -224,23 +225,69 @@ def _check_signature(args, task):
     return True, "unverified"
 
 
-def cmd_work(store, args):
-    if args.detach:
-        return _detach_worker(args)
+def _process_task(store, args, runner, workdir, extra, task):
+    """Claim and execute one task. Returns True if it was processed."""
+    try:
+        claimed = store.claim(args.me, task["id"])
+    except BusError as exc:
+        _log("claim failed %s: %s" % (task["id"], exc))
+        return False
+    if not claimed:
+        return False
+    _log("running %s: %s" % (task["id"], task.get("title", "")))
+    sandbox = None
+    status, output = "fail", ""
+    try:
+        detail = store.get_task(task["id"])
+        sig_ok, sig_reason = _check_signature(args, detail)
+        if not sig_ok:
+            output = "refused: %s" % sig_reason
+        else:
+            body = detail.get("body", "")
+            task_dir, body = _split_workdir(body)
+            task_dir = os.path.expanduser(task_dir) if task_dir else workdir
+            if not os.path.isdir(task_dir):
+                output = "workdir not found: %s" % task_dir
+            else:
+                sandbox = Sandbox(args.sandbox, task_dir, task["id"],
+                                  log=_log, keep=args.keep_worktrees,
+                                  image=args.docker_image,
+                                  network=args.docker_network)
+                _log("sandbox: %s (dir: %s)" % (sandbox.mode, sandbox.run_dir))
+                wrap = sandbox.wrap if sandbox.mode == "docker" else None
+                proc = runner(body, extra, sandbox.run_dir, args.timeout, wrap)
+                status = "ok" if proc.returncode == 0 else "fail"
+                output = proc.stdout or ""
+                if proc.stderr:
+                    output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
+    except SandboxError as exc:
+        output = "sandbox error: %s" % exc
+    except subprocess.TimeoutExpired:
+        status, output = "fail", "timeout after %ss" % args.timeout
+    except FileNotFoundError as exc:
+        status, output = "fail", "runner not found: %s" % exc
+    finally:
+        if sandbox is not None:
+            try:
+                info = sandbox.finish()
+            except Exception as exc:  # noqa: BLE001
+                info = {"mode": sandbox.mode, "cleanup_error": repr(exc)}
+            if info.get("diff_stat"):
+                output += "\n\n--- sandbox (worktree) ---\n" + info["diff_stat"]
+                if info.get("diff"):
+                    output += "\n" + info["diff"]
+            _log("sandbox %s finished" % info.get("mode"))
+    try:
+        store.complete(args.me, task["id"], status, output)
+    except BusError as exc:
+        _log("submit failed %s: %s (left running — use 'agent-bus reap')"
+             % (task["id"], exc))
+    else:
+        _log("finished %s -> %s" % (task["id"], status))
+    return True
 
-    workdir = os.path.abspath(os.path.expanduser(args.dir))
-    os.makedirs(workdir, exist_ok=True)
-    extra = list(args.extra or [])
-    if extra and extra[0] == "--":
-        extra = extra[1:]
-    runner = _run_claude if args.runner == "claude" else _run_shell
-    _log("mode: %s" % getattr(args, "_mode", "unknown"))
-    if getattr(args, "_config", None):
-        _log("config: %s" % args._config)
-    if not getattr(args, "_remote", False):
-        _log("NOTE: 本地模式 —— 任务只读写本地信箱，不会发往远端（用 --remote 或 AGENT_BUS_REMOTE）")
-    _log("worker up: me=%s dir=%s poll=%ss runner=%s" % (
-        args.me, workdir, args.poll, args.runner))
+
+def _worker_loop(store, args, runner, workdir, extra):
     delay = 5
     while True:
         try:
@@ -251,69 +298,49 @@ def cmd_work(store, args):
             delay = min(delay * 2, 120)
             continue
         delay = 5
+        processed = 0
         for task in tasks:
-            try:
-                claimed = store.claim(args.me, task["id"])
-            except BusError as exc:
-                _log("claim failed %s: %s" % (task["id"], exc))
-                continue
-            if not claimed:
-                continue
-            _log("running %s: %s" % (task["id"], task.get("title", "")))
-            sandbox = None
-            status, output = "fail", ""
-            try:
-                detail = store.get_task(task["id"])
-                sig_ok, sig_reason = _check_signature(args, detail)
-                if not sig_ok:
-                    output = "refused: %s" % sig_reason
-                else:
-                    body = detail.get("body", "")
-                    task_dir, body = _split_workdir(body)
-                    task_dir = os.path.expanduser(task_dir) if task_dir else workdir
-                    if not os.path.isdir(task_dir):
-                        output = "workdir not found: %s" % task_dir
-                    else:
-                        sandbox = Sandbox(args.sandbox, task_dir, task["id"],
-                                          log=_log, keep=args.keep_worktrees,
-                                          image=args.docker_image,
-                                          network=args.docker_network)
-                        _log("sandbox: %s (dir: %s)" % (sandbox.mode, sandbox.run_dir))
-                        wrap = sandbox.wrap if sandbox.mode == "docker" else None
-                        proc = runner(body, extra, sandbox.run_dir, args.timeout, wrap)
-                        status = "ok" if proc.returncode == 0 else "fail"
-                        output = proc.stdout or ""
-                        if proc.stderr:
-                            output += ("\n[stderr]\n" + proc.stderr) if output else ("[stderr]\n" + proc.stderr)
-            except SandboxError as exc:
-                output = "sandbox error: %s" % exc
-            except subprocess.TimeoutExpired:
-                status, output = "fail", "timeout after %ss" % args.timeout
-            except FileNotFoundError as exc:
-                status, output = "fail", "runner not found: %s" % exc
-            finally:
-                if sandbox is not None:
-                    try:
-                        info = sandbox.finish()
-                    except Exception as exc:  # noqa: BLE001
-                        info = {"mode": sandbox.mode, "cleanup_error": repr(exc)}
-                    if info.get("diff_stat"):
-                        output += "\n\n--- sandbox (worktree) ---\n" + info["diff_stat"]
-                        if info.get("diff"):
-                            output += "\n" + info["diff"]
-                    _log("sandbox %s finished" % info.get("mode"))
-            try:
-                store.complete(args.me, task["id"], status, output)
-            except BusError as exc:
-                _log("submit failed %s: %s (left running — use 'agent-bus reap')"
-                     % (task["id"], exc))
-            else:
-                _log("finished %s -> %s" % (task["id"], status))
-            if args.once:
-                return 0
+            if _process_task(store, args, runner, workdir, extra, task):
+                processed += 1
+                if args.once:
+                    return
         if args.once:
-            return 0
+            return
         time.sleep(args.poll)
+
+
+def cmd_work(store, args):
+    if args.detach:
+        return _detach_worker(args)
+
+    workdir = os.path.abspath(os.path.expanduser(args.dir))
+    os.makedirs(workdir, exist_ok=True)
+    extra = list(args.extra or [])
+    if extra and extra[0] == "--":
+        extra = extra[1:]
+    runner = _run_claude if args.runner == "claude" else _run_shell
+    workers = max(1, int(args.workers or 1))
+    _log("mode: %s" % getattr(args, "_mode", "unknown"))
+    if getattr(args, "_config", None):
+        _log("config: %s" % args._config)
+    if not getattr(args, "_remote", False):
+        _log("NOTE: 本地模式 —— 任务只读写本地信箱，不会发往远端（用 --remote 或 AGENT_BUS_REMOTE）")
+    _log("worker up: me=%s dir=%s poll=%ss runner=%s workers=%d" % (
+        args.me, workdir, args.poll, args.runner, workers))
+    if workers == 1:
+        _worker_loop(store, args, runner, workdir, extra)
+        return 0
+    threads = [threading.Thread(target=_worker_loop,
+                                args=(store, args, runner, workdir, extra),
+                                daemon=True) for _ in range(workers)]
+    for thread in threads:
+        thread.start()
+    try:
+        for thread in threads:
+            thread.join()
+    except KeyboardInterrupt:
+        _log("interrupted; exiting")
+    return 0
 
 
 def cmd_doctor(store, args):
@@ -450,6 +477,53 @@ def cmd_stop(store, args):
     return 0
 
 
+def _watch_events(store, me, state):
+    try:
+        targets = [me] if me else sorted(store.stats().keys())
+    except BusError as exc:
+        return ["bus error: %s" % exc]
+    events = []
+    for target in targets:
+        try:
+            tasks = store.list_tasks(target, include_all=True)
+        except BusError as exc:
+            events.append("bus error for %s: %s" % (target, exc))
+            continue
+        for task in tasks:
+            key = (target, task["id"])
+            status = task.get("status")
+            if state.get(key) == status:
+                continue
+            state[key] = status
+            events.append("[%s] %-7s %s: %s" % (
+                time.strftime("%H:%M:%S"), status, task["id"],
+                task.get("title", "")))
+            if status in ("done", "failed"):
+                try:
+                    result = store.get_result(task["id"])
+                except BusError:
+                    continue
+                text = (result.get("result") or "").strip()
+                if text:
+                    events.append("    -> " + text.replace("\n", "\n    ")[:2000])
+    return events
+
+
+def cmd_watch(store, args):
+    _log("watching %s every %ss (Ctrl+C to stop)" % (
+        args.me or "all targets", args.interval))
+    state = {}
+    try:
+        while True:
+            for line in _watch_events(store, args.me, state):
+                print(line, flush=True)
+            if args.once:
+                return 0
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        return 0
+
+
 def cmd_prune(store, args):
     removed = store.prune(args.older_days * 86400, dry_run=args.dry_run)
     if args.json:
@@ -548,6 +622,8 @@ def build_parser():
                    default=None, help="任务沙箱（默认 auto）")
     p.add_argument("--require-signature", action="store_true",
                    help="拒绝未签名或签名无效的任务")
+    p.add_argument("--workers", type=int, default=None,
+                   help="并发 worker 数（默认 1）")
     p.add_argument("--keep-worktrees", action="store_true",
                    help="任务完成后保留 worktree")
     p.add_argument("--docker-image", default=None,
@@ -578,6 +654,12 @@ def build_parser():
     p = sub.add_parser("stop", help="停止后台 worker")
     p.add_argument("--me", default=None)
     p.set_defaults(func=cmd_stop)
+
+    p = sub.add_parser("watch", help="实时查看任务状态和结果")
+    p.add_argument("--me", default=None, help="只观察某个目标（默认全部）")
+    p.add_argument("--interval", type=int, default=3, help="轮询间隔（秒）")
+    p.add_argument("--once", action="store_true", help="轮询一次后退出")
+    p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser("prune", help="清理旧的已完成任务和结果")
     p.add_argument("--older-days", type=int, default=30,
@@ -615,7 +697,8 @@ def _apply_config(args, cfg):
                                   or cfg.get("require_signature", False))
 
     cmd = args.cmd
-    if cmd in ("work", "status", "stop", "doctor") and not getattr(args, "me", None):
+    if cmd in ("work", "status", "stop", "doctor", "watch") \
+            and not getattr(args, "me", None):
         args.me = cfg.get("me")
     if cmd == "work":
         if not args.me:
@@ -628,6 +711,8 @@ def _apply_config(args, cfg):
         args.timeout = args.timeout if args.timeout is not None else int(cfg.get("timeout", 3600))
         args.sandbox = args.sandbox or cfg.get("sandbox") or "auto"
         args.runner = args.runner or cfg.get("runner") or "claude"
+        args.workers = (args.workers if args.workers is not None
+                        else int(cfg.get("workers", 1)))
         args.docker_network = args.docker_network or cfg.get("docker_network") or "bridge"
         args.docker_image = args.docker_image or cfg.get("docker_image")
     elif cmd in ("status", "stop"):

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- `work --workers N`: N concurrent task loops; atomic claim keeps tasks unique
+- `watch [--me] [--interval] [--once]`: stream status changes and results
+- config key: `workers`
+
 ## 0.3.0
 
 - task signing with a shared HMAC key (`AGENT_BUS_SIGNING_KEY` / `signing_key`);

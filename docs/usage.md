@@ -134,6 +134,15 @@ agent-bus --remote ... tasks lab --all # 详细列表
 agent-bus --remote ... result <id>     # 结果
 ```
 
+### 2.4 并发与实时查看
+
+```bash
+agent-bus work --me lab --workers 4    # 并发处理（claim 原子，不重复）
+agent-bus watch --me lab               # 实时状态 + 结果，Ctrl+C 退出
+```
+
+配置项：`workers = 4`。每个并发任务仍有独立 sandbox。
+
 ## 3. worker 管理
 
 | 平台 | 启动 | 查看 | 停止 |

@@ -163,6 +163,16 @@ require_signature = true     # worker 侧：拒绝未签名/无效任务
 - 也可用环境变量 `AGENT_BUS_SIGNING_KEY`（MCP 的 `send_task` 同样会自动签名）
 - 共享密钥能证明「持有密钥的授权方发出」，但不能区分具体哪台机器（每机非对称身份在后续版本）
 
+## 并发与实时（v0.4）
+
+```bash
+agent-bus work --me lab --workers 4   # 4 个并发 worker；claim 原子，任务不会重复执行
+agent-bus watch --me lab              # 实时输出状态变化与结果（Ctrl+C 退出）
+agent-bus watch --me lab --once       # 只看一次
+```
+
+配置里可写 `workers = 4`；每个并发任务仍有独立的 sandbox。
+
 ## 沙箱（v0.2）
 
 `work` 默认 `--sandbox auto`：**git 仓库自动使用 worktree**（每个任务一个独立副本，结果里带 diff 统计），非 git 目录退回 `none` 并打印警告。
@@ -212,7 +222,8 @@ docker build \
 | `agent-bus show <id>` / `result <id>` | 查看详情 / 结果 |
 | `agent-bus list` | 总览 |
 | `agent-bus doctor [--me N] [--dir D]` | 环境自检 |
-| `agent-bus work --me N --dir D [--sandbox auto\|none\|worktree\|docker] [--detach] [--log F]` | worker 循环（可后台、可沙箱） |
+| `agent-bus work --me N --dir D [--sandbox ...] [--workers K] [--detach] [--log F]` | worker 循环（可后台、可并发、可沙箱） |
+| `agent-bus watch [--me N] [--interval 3] [--once]` | 实时查看状态与结果 |
 | `agent-bus status --me N` / `stop --me N` | 后台 worker 状态 / 停止 |
 
 ## 接入 Claude Code（MCP）
