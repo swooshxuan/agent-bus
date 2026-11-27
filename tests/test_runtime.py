@@ -87,6 +87,32 @@ class RuntimeTest(unittest.TestCase):
         self.assertFalse(str(args.ssh_bin).startswith("~"))
         self.assertFalse(str(args.ssh_known_hosts).startswith("~"))
 
+    def test_init_writes_config_and_key(self):
+        import shutil
+        if not shutil.which("ssh-keygen"):
+            self.skipTest("ssh-keygen not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = os.path.join(tmp, "config.toml")
+            open(cfg, "w").close()
+            key = os.path.join(tmp, "id_test")
+            old = os.environ.get("AGENT_BUS_CONFIG")
+            os.environ["AGENT_BUS_CONFIG"] = cfg
+            try:
+                code = main(["init", "--remote", "user@host", "--me", "testpc",
+                             "--dir", os.path.join(tmp, "work"), "--key", key,
+                             "--force", "--no-test"])
+            finally:
+                if old is None:
+                    os.environ.pop("AGENT_BUS_CONFIG", None)
+                else:
+                    os.environ["AGENT_BUS_CONFIG"] = old
+            self.assertEqual(code, 0)
+            text = open(cfg, encoding="utf-8").read()
+            self.assertIn('me = "testpc"', text)
+            self.assertIn('remote = "user@host"', text)
+            self.assertTrue(os.path.exists(key))
+            self.assertTrue(os.path.exists(key + ".pub"))
+
 
 if __name__ == "__main__":
     unittest.main()

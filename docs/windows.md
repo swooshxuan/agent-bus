@@ -22,6 +22,9 @@ ssh-keygen -t ed25519 -f "%USERPROFILE%\.ssh\agentbus" -N ""
 type "%USERPROFILE%\.ssh\agentbus.pub"
 ```
 
+也可以直接用向导：`agent-bus init`（非交互：`agent-bus init --remote user@host --me pc1 --no-test --force`），
+它会生成密钥、配置和 `agent.bat` / `bus.bat`。
+
 把公钥发到信箱主机，加入 `~/.ssh/authorized_keys`（带受限命令）：
 
 ```

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agents-bus"
-version = "0.4.3"
+version = "0.5.0"
 description = "A tiny, SSH-native, human-readable task mailbox for cross-machine AI agents"
 readme = "README.md"
 license = { text = "MIT" }

@@ -37,6 +37,15 @@ agent-bus 做减法：
 
 ## 快速开始
 
+### 0. 一键初始化（推荐）
+
+```bash
+agent-bus init
+```
+
+交互式填写信箱主机、本机名字和工作目录，自动生成 SSH 密钥、写入配置、
+打印受限的 `authorized_keys` 行并测试连接。加完白名单后 `agent-bus doctor` 即可验证。
+
 ### 1. 安装（在信箱主机和每台 worker 上）
 
 ```bash

@@ -645,6 +645,116 @@ def cmd_reap(store, args):
     return 0
 
 
+def _prompt(label, default=None):
+    text = "%s [%s]: " % (label, default) if default else "%s: " % label
+    value = input(text).strip()
+    return value or (default or "")
+
+
+def cmd_init(store, args):
+    interactive = sys.stdin.isatty()
+    remote = args.remote or os.environ.get("AGENT_BUS_REMOTE")
+    me = getattr(args, "me", None)
+    workdir = getattr(args, "dir", None)
+    key = (args.remote_key or os.environ.get("AGENT_BUS_SSH_KEY")
+           or os.path.join(os.path.expanduser("~"), ".ssh", "agentbus"))
+    signing = (getattr(args, "signing_key", None)
+               or os.environ.get("AGENT_BUS_SIGNING_KEY"))
+    if interactive:
+        remote = remote or _prompt("信箱主机 (user@host)")
+        me = me or _prompt("本机名字 (me)",
+                           platform.node().split(".")[0].lower() or "agent")
+        workdir = workdir or _prompt("工作目录", "~/agent-work")
+        key = _prompt("SSH 私钥路径", key)
+    if not remote or not me:
+        sys.stderr.write("agent-bus init: --remote and --me are required\n")
+        return 1
+    me = me.strip()
+    workdir = os.path.expanduser(workdir or "~/agent-work")
+    key = os.path.expanduser(key)
+
+    if not os.path.exists(key):
+        if not shutil.which("ssh-keygen"):
+            sys.stderr.write("agent-bus init: ssh-keygen not found "
+                             "(install an OpenSSH client)\n")
+            return 1
+        print("生成密钥 ...")
+        subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", key, "-N", ""],
+                       check=True)
+    print("[ok] key: %s" % key)
+    with open(key + ".pub", encoding="utf-8") as fh:
+        pubkey = fh.read().strip()
+
+    config_path = (os.environ.get("AGENT_BUS_CONFIG")
+                   or os.path.join(os.path.expanduser("~"), ".config",
+                                   "agent-bus", "config.toml"))
+    if os.path.exists(config_path) and not getattr(args, "force", False):
+        if interactive:
+            if input("配置文件已存在，覆盖？[y/N]: ").strip().lower() not in ("y", "yes"):
+                print("已取消")
+                return 1
+        else:
+            sys.stderr.write("agent-bus init: config exists (use --force): %s\n"
+                             % config_path)
+            return 1
+
+    def toml_str(value):
+        return str(value).replace("\\", "/").replace('"', '\\"')
+
+    lines = [
+        'remote = "%s"' % toml_str(remote),
+        'remote_key = "%s"' % toml_str(key),
+        'me = "%s"' % toml_str(me),
+        'dir = "%s"' % toml_str(workdir),
+        "poll = 20",
+        "workers = 1",
+        'sandbox = "auto"',
+    ]
+    if signing:
+        lines.append('signing_key = "%s"' % toml_str(signing))
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError:
+        pass
+    print("[ok] config: %s" % config_path)
+
+    gate = ('command="agent-bus-gate",no-port-forwarding,no-X11-forwarding,'
+            'no-agent-forwarding,no-pty')
+    print("\n把这行加到信箱主机的 ~/.ssh/authorized_keys：\n")
+    print("  %s %s" % (gate, pubkey))
+
+    if os.name == "nt" and interactive:
+        for name, body in (("agent.bat", "@echo off\r\nagent-bus work\r\n"),
+                           ("bus.bat", "@echo off\r\nagent-bus %*\r\n")):
+            path = os.path.join(os.getcwd(), name)
+            if not os.path.exists(path) or getattr(args, "force", False):
+                with open(path, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(body)
+                print("[ok] wrote %s" % path)
+
+    if not getattr(args, "no_test", False):
+        test = RemoteStore(remote, key=key, ssh_bin=getattr(args, "ssh_bin", None),
+                           ssh_port=getattr(args, "ssh_port", None),
+                           ssh_proxy=getattr(args, "ssh_proxy", None),
+                           ssh_known_hosts=getattr(args, "ssh_known_hosts", None))
+        try:
+            stats = test.stats()
+            tasks = sum(sum(counts.values()) for counts in stats.values())
+            print("[ok] connected (%d targets, %d tasks)" % (len(stats), tasks))
+        except BusError as exc:
+            last = str(exc).strip().splitlines()[-1] if str(exc).strip() else "error"
+            print("[..] not connected yet (add the key, then retry): %s" % last)
+
+    print("\n下一步：")
+    print("  1. 把上面的 authorized_keys 行加到信箱主机")
+    print("  2. agent-bus doctor --me %s --dir %s" % (me, workdir))
+    print("  3. agent-bus work")
+    return 0
+
+
 def cmd_config_show(store, args):
     cfg = getattr(args, "_cfg", {}) or {}
     shown = dict(cfg)
@@ -682,6 +792,16 @@ def build_parser():
                         help="known_hosts 路径（默认 $AGENT_BUS_SSH_KNOWN_HOSTS 或配置）")
     sub = parser.add_subparsers(dest="cmd")
     sub.required = True
+
+    p = sub.add_parser("init", help="生成配置、密钥和接入说明")
+    p.add_argument("--remote", default=None)
+    p.add_argument("--me", default=None)
+    p.add_argument("--dir", default=None)
+    p.add_argument("--key", "--remote-key", dest="remote_key", default=None)
+    p.add_argument("--signing-key", default=None)
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--no-test", action="store_true")
+    p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("send", help="投递任务")
     p.add_argument("target")
@@ -830,7 +950,8 @@ def _apply_config(args, cfg):
     if args.remote_key:
         args.remote_key = os.path.expanduser(args.remote_key)
 
-    args.signing_key = (os.environ.get("AGENT_BUS_SIGNING_KEY")
+    args.signing_key = (getattr(args, "signing_key", None)
+                        or os.environ.get("AGENT_BUS_SIGNING_KEY")
                         or cfg.get("signing_key"))
     args.require_signature = bool(getattr(args, "require_signature", False)
                                   or cfg.get("require_signature", False))
@@ -867,6 +988,14 @@ def main(argv=None):
     args = build_parser().parse_args(raw)
     try:
         cfg, cfg_path = load_config(args.config)
+    except BusError as exc:
+        if args.cmd == "init":
+            # `init` may be pointed at a config that does not exist yet.
+            cfg, cfg_path = {}, None
+        else:
+            sys.stderr.write("agent-bus: %s\n" % exc)
+            return 1
+    try:
         _apply_config(args, cfg)
     except BusError as exc:
         sys.stderr.write("agent-bus: %s\n" % exc)

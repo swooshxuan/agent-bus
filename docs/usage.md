@@ -12,6 +12,22 @@
 
 ## 1. 一次性配置
 
+### 1.0 一键初始化（推荐）
+
+```bash
+agent-bus init
+```
+
+生成密钥、写 `~/.config/agent-bus/config.toml`、打印 `authorized_keys` 行（带
+`command="agent-bus-gate"` 限制），并尝试连接信箱主机。加完白名单后运行
+`agent-bus doctor --me <名字> --dir <目录>` 验证。
+
+非交互（脚本）用法：
+
+```bash
+agent-bus init --remote user@host --me pc1 --dir ~/agent-work --no-test --force
+```
+
 ### 1.1 信箱主机
 
 ```bash

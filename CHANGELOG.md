@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- new `agent-bus init` wizard: generates the SSH key, writes the config, prints
+  the restricted authorized_keys line, optionally creates Windows helper scripts,
+  and tests connectivity (interactive, or scriptable with flags)
+- `init --signing-key` takes precedence over env/config
+
 ## 0.4.3
 
 - doctor resolves the configured `ssh_bin` and reports port/proxy/known_hosts;
