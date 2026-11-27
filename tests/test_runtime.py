@@ -113,6 +113,23 @@ class RuntimeTest(unittest.TestCase):
             self.assertTrue(os.path.exists(key))
             self.assertTrue(os.path.exists(key + ".pub"))
 
+    def test_service_work_args(self):
+        from types import SimpleNamespace
+        from agent_bus.cli import _service_work_args
+        args = SimpleNamespace(me="pc1", workers=2,
+                               extra=["--", "--max-turns", "5"])
+        work_args, extra = _service_work_args(args, {})
+        self.assertEqual(work_args, ["--me", "pc1", "--workers", "2"])
+        self.assertEqual(extra, ["--max-turns", "5"])
+
+    def test_service_work_args_from_config(self):
+        from types import SimpleNamespace
+        from agent_bus.cli import _service_work_args
+        args = SimpleNamespace(me=None, workers=None, extra=[])
+        work_args, extra = _service_work_args(args, {"me": "lab", "workers": 3})
+        self.assertEqual(work_args, ["--me", "lab", "--workers", "3"])
+        self.assertEqual(extra, [])
+
 
 if __name__ == "__main__":
     unittest.main()

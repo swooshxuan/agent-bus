@@ -74,7 +74,12 @@ agent-bus work --me lab --dir ~/agent-work --poll 20 -- \
   --dangerously-skip-permissions --max-turns 30
 ```
 
-或交给 systemd（见 `examples/agent-worker.service`），开机自动挂。
+或一条命令注册为系统服务（systemd / Windows 计划任务 / launchd）：
+
+```bash
+agent-bus service install --me lab --workers 2 -- --dangerously-skip-permissions --max-turns 30
+agent-bus service status
+```
 
 ### 4. 投递与查看
 

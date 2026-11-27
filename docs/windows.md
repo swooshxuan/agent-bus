@@ -68,26 +68,22 @@ agent-bus stop --me pc1
 
 日志默认在 `%USERPROFILE%\.agent-bus\worker\pc1.log`（`--log` 可改）。
 
-## 6. 开机自启（任务计划程序）
+## 6. 开机自启（服务安装）
 
-创建 `%USERPROFILE%\agent-bus\agent.bat`。**前台运行，不要加 `--detach`** ——
-这样任务计划程序才能监督进程并在崩溃时重启：
-
-```bat
-@echo off
-agent-bus work >> "%USERPROFILE%\.agent-bus\worker\pc1.log" 2>&1
-```
-
-注册任务（登录后启动）：
+一条命令注册（自动适配 systemd / Windows 计划任务 / launchd）：
 
 ```bat
-schtasks /create /tn "agent-bus" /tr "\"%USERPROFILE%\agent-bus\agent.bat\"" /sc onlogon /rl highest /f
+agent-bus service install --me pc1 --workers 2 -- --dangerously-skip-permissions --max-turns 30
+agent-bus service status
+agent-bus service uninstall
 ```
 
-- 用 `onlogon` 而不是 `onstart`：worker 需要用户环境（PATH、凭证、配置）
-- 在任务计划程序 GUI 的「设置」页勾选「如果任务失败，每隔 N 分钟重新启动」，并取消「超过运行时间则停止」
-- 与 `--detach` 的区别：`--detach` 适合手工临时后台运行；**开机自启交给任务计划程序监督**
-- 更新 agent-bus 后：`schtasks /end /tn "agent-bus"` 再 `schtasks /run /tn "agent-bus"`
+- Windows 下创建计划任务 `agent-bus`（登录时启动、失败自动重启）；脚本与日志在
+  `%USERPROFILE%\agent-bus\agent-service.bat` 和
+  `%USERPROFILE%\.agent-bus\worker\service.log`
+- `--` 之后的参数原样传给 `agent-bus work`
+- 更新 agent-bus 后：`service uninstall` 再 `service install`
+- 不想用服务也可以 `agent-bus work --detach`（不会自动重启）
 - 日志会持续增长，建议定期清理或按大小轮转（Windows 没有自动轮转）
 
 ## 7. SSH 客户端选择

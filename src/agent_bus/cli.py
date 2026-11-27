@@ -6,6 +6,7 @@ import locale
 import os
 import platform
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -769,6 +770,162 @@ def cmd_config_show(store, args):
     return 0
 
 
+SERVICE_NAME = "agent-bus"
+
+
+def _service_work_args(args, cfg):
+    work_args = []
+    me = getattr(args, "me", None) or cfg.get("me")
+    if me:
+        work_args += ["--me", str(me)]
+    workers = getattr(args, "workers", None)
+    if workers is None:
+        workers = cfg.get("workers")
+    if workers:
+        work_args += ["--workers", str(workers)]
+    extra = list(getattr(args, "extra", []) or [])
+    if extra and extra[0] == "--":
+        extra = extra[1:]
+    return work_args, extra
+
+
+def _service_exec(work_args, extra):
+    parts = [sys.executable, "-m", "agent_bus.cli", "work"] + work_args
+    if extra:
+        parts += ["--"] + extra
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _service_install(work_args, extra):
+    if sys.platform.startswith("win"):
+        base = os.path.join(os.path.expanduser("~"), "agent-bus")
+        logdir = os.path.join(os.path.expanduser("~"), ".agent-bus", "worker")
+        os.makedirs(base, exist_ok=True)
+        os.makedirs(logdir, exist_ok=True)
+        bat = os.path.join(base, "agent-service.bat")
+        cmd = "agent-bus work " + " ".join(work_args)
+        if extra:
+            cmd += " -- " + " ".join(extra)
+        with open(bat, "w", encoding="utf-8", newline="") as fh:
+            fh.write('@echo off\r\ncd /d "%USERPROFILE%"\r\n' + cmd +
+                     ' >> "%USERPROFILE%\\.agent-bus\\worker\\service.log" 2>&1\r\n')
+        script = ("$ErrorActionPreference='Stop'; "
+                  "$a=New-ScheduledTaskAction -Execute 'cmd.exe' "
+                  "-Argument '/c \"%s\"'; "
+                  "$t=New-ScheduledTaskTrigger -AtLogOn; "
+                  "$s=New-ScheduledTaskSettingsSet -RestartCount 999 "
+                  "-RestartInterval (New-TimeSpan -Minutes 1) "
+                  "-ExecutionTimeLimit ([TimeSpan]::Zero); "
+                  "Register-ScheduledTask -TaskName 'agent-bus' -Action $a "
+                  "-Trigger $t -Settings $s -Force | Out-Null") % bat.replace("'", "''")
+        subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True)
+        print("[ok] scheduled task 'agent-bus' installed")
+        print("[ok] log:", os.path.join(logdir, "service.log"))
+        return 0
+    if sys.platform == "darwin":
+        path = os.path.expanduser("~/Library/LaunchAgents/com.agent-bus.worker.plist")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        argv = [sys.executable, "-m", "agent_bus.cli", "work"] + work_args
+        if extra:
+            argv += ["--"] + extra
+        xml = "".join("<string>%s</string>" % part.replace("&", "&amp;").replace("<", "&lt;")
+                      for part in argv)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                     '<plist version="1.0"><dict>'
+                     '<key>Label</key><string>com.agent-bus.worker</string>'
+                     '<key>ProgramArguments</key><array>%s</array>'
+                     '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>'
+                     '</dict></plist>\n' % xml)
+        subprocess.run(["launchctl", "unload", "-w", path], capture_output=True)
+        subprocess.run(["launchctl", "load", "-w", path], check=True)
+        print("[ok] launchd agent installed:", path)
+        return 0
+    unit = os.path.expanduser("~/.config/systemd/user/agent-bus.service")
+    os.makedirs(os.path.dirname(unit), exist_ok=True)
+    with open(unit, "w", encoding="utf-8") as fh:
+        fh.write("[Unit]\nDescription=agent-bus worker\n"
+                 "After=network-online.target\nWants=network-online.target\n\n"
+                 "[Service]\nType=simple\nExecStart=%s\n"
+                 "Restart=on-failure\nRestartSec=10\nWorkingDirectory=%%h\n\n"
+                 "[Install]\nWantedBy=default.target\n"
+                 % _service_exec(work_args, extra))
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "agent-bus"], check=True)
+    status = subprocess.run(["systemctl", "--user", "is-active", "agent-bus"],
+                            capture_output=True, text=True).stdout.strip()
+    print("[ok] systemd user unit installed:", unit)
+    print("[ok] status:", status)
+    linger = subprocess.run(["sudo", "-n", "loginctl", "enable-linger",
+                             os.environ.get("USER", "")], capture_output=True)
+    if linger.returncode == 0:
+        print("[ok] linger enabled (worker starts at boot)")
+    else:
+        print("[..] for boot persistence run: sudo loginctl enable-linger $USER")
+    return 0
+
+
+def _service_uninstall():
+    if sys.platform.startswith("win"):
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "Unregister-ScheduledTask -TaskName 'agent-bus' -Confirm:$false"],
+                       capture_output=True)
+        bat = os.path.join(os.path.expanduser("~"), "agent-bus", "agent-service.bat")
+        if os.path.exists(bat):
+            os.unlink(bat)
+        print("[ok] scheduled task removed")
+        return 0
+    if sys.platform == "darwin":
+        path = os.path.expanduser("~/Library/LaunchAgents/com.agent-bus.worker.plist")
+        if os.path.exists(path):
+            subprocess.run(["launchctl", "unload", "-w", path], capture_output=True)
+            os.unlink(path)
+        print("[ok] launchd agent removed")
+        return 0
+    subprocess.run(["systemctl", "--user", "disable", "--now", "agent-bus"],
+                   capture_output=True)
+    unit = os.path.expanduser("~/.config/systemd/user/agent-bus.service")
+    if os.path.exists(unit):
+        os.unlink(unit)
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    print("[ok] systemd user unit removed")
+    return 0
+
+
+def _service_status():
+    if sys.platform.startswith("win"):
+        result = subprocess.run(["schtasks", "/query", "/tn", "agent-bus"],
+                                capture_output=True, text=True)
+        print((result.stdout or result.stderr).strip())
+        return 0 if result.returncode == 0 else 1
+    if sys.platform == "darwin":
+        result = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        lines = [line for line in result.stdout.splitlines()
+                 if "com.agent-bus.worker" in line]
+        print("\n".join(lines) or "not loaded")
+        return 0 if lines else 1
+    result = subprocess.run(["systemctl", "--user", "status", "agent-bus", "--no-pager"],
+                            capture_output=True, text=True)
+    print((result.stdout or result.stderr).strip()[:2000])
+    return 0 if result.returncode == 0 else 1
+
+
+def cmd_service(store, args):
+    cfg = getattr(args, "_cfg", {}) or {}
+    if args.action == "status":
+        return _service_status()
+    if args.action == "uninstall":
+        return _service_uninstall()
+    if not (getattr(args, "me", None) or cfg.get("me")):
+        sys.stderr.write("agent-bus service install: --me is required "
+                         "(or set 'me' in the config)\n")
+        return 1
+    work_args, extra = _service_work_args(args, cfg)
+    return _service_install(work_args, extra)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="agent-bus",
@@ -802,6 +959,13 @@ def build_parser():
     p.add_argument("--force", action="store_true")
     p.add_argument("--no-test", action="store_true")
     p.set_defaults(func=cmd_init)
+
+    p = sub.add_parser("service", help="安装/卸载/查看后台 worker 服务")
+    p.add_argument("action", choices=["install", "uninstall", "status"])
+    p.add_argument("--me", default=None)
+    p.add_argument("--workers", type=int, default=None)
+    p.add_argument("extra", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_service)
 
     p = sub.add_parser("send", help="投递任务")
     p.add_argument("target")

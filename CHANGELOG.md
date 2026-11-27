@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- `agent-bus service install|uninstall|status`: systemd user unit (Linux),
+  Task Scheduler with restart-on-failure (Windows), launchd (macOS)
+- `service install` accepts worker args after `--`, e.g.
+  `agent-bus service install --me lab --workers 2 -- --dangerously-skip-permissions`
+
 ## 0.5.0
 
 - new `agent-bus init` wizard: generates the SSH key, writes the config, prints
